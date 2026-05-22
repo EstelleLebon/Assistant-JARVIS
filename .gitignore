@@ -1,0 +1,12 @@
+node_modules
+dist
+out
+build
+.cache
+.vite
+.env
+coverage
+*.log
+.DS_Store
+.old
+.docs
