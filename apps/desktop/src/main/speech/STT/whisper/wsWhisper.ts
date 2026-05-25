@@ -8,8 +8,19 @@ const WS_MAX_RECONNECT = 5
 const WS_RECONNECT_BASE_DELAY = 1000 // ms
 
 const partialCallbacks: ((text: string) => void)[] = []
-
 const finalCallbacks: ((text: string) => void)[] = []
+
+let pendingWakeWord: string | null = null
+
+export function injectWakeWord(word: string): void {
+    pendingWakeWord = word
+}
+
+// The audio stream always starts with the wake word utterance, so the first
+// token from Whisper is always some transcription of it — strip it unconditionally.
+function stripFirstToken(text: string): string {
+    return text.replace(/^\S+[,\s]*/, '').trim()
+}
 
 export async function connectWhisper() {
     if (ws && ws.readyState === WebSocket.OPEN) return
@@ -60,10 +71,15 @@ export async function connectWhisper() {
             try {
                 const json = JSON.parse(data.toString())
                 if (json.type === 'partial') {
-                    partialCallbacks.forEach((cb) => cb(json.text))
+                    const clean = pendingWakeWord ? stripFirstToken(json.text) : json.text
+                    const text = pendingWakeWord ? `${pendingWakeWord}, ${clean}` : clean
+                    partialCallbacks.forEach((cb) => cb(text))
                 }
                 if (json.type === 'final') {
-                    finalCallbacks.forEach((cb) => cb(json.text))
+                    const clean = pendingWakeWord ? stripFirstToken(json.text) : json.text
+                    const text = pendingWakeWord ? `${pendingWakeWord}, ${clean}` : clean
+                    pendingWakeWord = null
+                    finalCallbacks.forEach((cb) => cb(text.trim()))
                 }
             } catch (e) {
                 logger.error('WS parse error:' + (e instanceof Error ? e.message : String(e)))
@@ -99,7 +115,8 @@ export function sendSpeechStart() {
 
     ws.send(
         JSON.stringify({
-            type: 'speech_start'
+            type: 'speech_start',
+            ...(pendingWakeWord ? { initial_prompt: pendingWakeWord, reset: true } : {})
         })
     )
 }
@@ -126,4 +143,13 @@ export function onPartial(callback: (text: string) => void) {
 
 export function onFinal(callback: (text: string) => void) {
     finalCallbacks.push(callback)
+}
+
+export function disconnectWhisper() {
+    if (ws) {
+        ws.removeAllListeners()
+        ws.close()
+        ws = null
+    }
+    whisperServer.stop()
 }

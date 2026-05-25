@@ -10,16 +10,60 @@ import { startVAD } from './speech/STT/vad/vadProcess'
 
 import {
     connectWhisper,
+    disconnectWhisper,
     sendAudio,
     sendSpeechStart,
     sendSpeechEnd,
     onPartial,
-    onFinal
+    onFinal,
+    injectWakeWord
 } from './speech/STT/whisper/wsWhisper'
 
 import { startMicrophone } from './speech/STT/audio/microphone'
 
 import logger from './logger'
+import { askOllamaStream } from './llm/ollamaClient'
+import { initTTS, queueSpeak, stopSpeaking, ttsEvents } from './speech/TTS/ttsPlayer'
+
+/*
+ * TTS chunk extraction
+ * Hard split: . ! ? … ; followed by space
+ * Soft split: , — \n only if segment >= MIN_SOFT_CHARS
+ */
+const MIN_SOFT_CHARS = 20
+
+function extractTTSChunks(buffer: string): { chunks: string[]; remaining: string } {
+    const chunks: string[] = []
+    let segStart = 0
+    let i = 0
+
+    while (i < buffer.length) {
+        const ch = buffer[i]
+        const isHard = '.!?…;'.includes(ch)
+        const isSoft = ch === ',' || ch === '—' || ch === '\n'
+
+        if (isHard || (isSoft && i - segStart >= MIN_SOFT_CHARS)) {
+            // consume consecutive punctuation (e.g. "..." or "!!")
+            if (isHard) {
+                while (i + 1 < buffer.length && '.!?'.includes(buffer[i + 1])) i++
+            }
+
+            const next = buffer[i + 1]
+            // only split if there's content after (don't split at end of buffer)
+            if (next === ' ' || next === '\n') {
+                const chunk = buffer.slice(segStart, i + 1).trim()
+                if (chunk) chunks.push(chunk)
+                i += 2
+                segStart = i
+                continue
+            }
+        }
+
+        i++
+    }
+
+    return { chunks, remaining: buffer.slice(segStart) }
+}
 
 /*
  * STATES
@@ -28,7 +72,13 @@ import logger from './logger'
 let assistantAwake = false
 let isUserSpeaking = false
 
+let vadProc: import('./pyServers/pyServer').default | null = null
+let wakeWordProc: import('./pyServers/pyServer').default | null = null
+
 let speechEndTimeout: NodeJS.Timeout | null = null
+
+type ConversationMessage = { role: 'user' | 'assistant'; content: string }
+const conversationHistory: ConversationMessage[] = []
 
 function createWindow(): void {
     const mainWindow = new BrowserWindow({
@@ -75,15 +125,14 @@ function sendToRenderer(channel: string, payload?: any) {
 }
 
 app.whenReady().then(async () => {
-    logger.info('\n=== APP READY ===')
-
     electronApp.setAppUserModelId('com.electron')
+    initTTS()
 
     app.on('browser-window-created', (_, window) => {
         optimizer.watchWindowShortcuts(window)
     })
 
-    ipcMain.on('ping', () => logger.info('pong'))
+    ipcMain.on('ping', () => logger.info('[MAIN.index] pong'))
 
     createWindow()
 
@@ -91,9 +140,9 @@ app.whenReady().then(async () => {
      * VAD
      */
 
-    logger.info('Starting VAD...')
+    logger.info('[MAIN.index] Starting VAD...')
 
-    startVAD((event) => {
+    const vadProc = startVAD((event) => {
         /*
          * SPEECH START
          */
@@ -107,7 +156,7 @@ app.whenReady().then(async () => {
                 speechEndTimeout = null
             }
 
-            logger.debug('speech_start detected')
+            logger.debug('[MAIN.index] speech_start detected')
 
             /*
              * IMPORTANT
@@ -128,14 +177,14 @@ app.whenReady().then(async () => {
          */
 
         if (event.type === 'speech_end') {
-            logger.debug('speech_end detected')
+            logger.debug('[MAIN.index] speech_end detected')
 
             if (speechEndTimeout) {
                 clearTimeout(speechEndTimeout)
             }
 
             speechEndTimeout = setTimeout(() => {
-                logger.debug('Speech REALLY ended')
+                logger.debug('[MAIN.index] Speech REALLY ended')
 
                 isUserSpeaking = false
 
@@ -159,44 +208,81 @@ app.whenReady().then(async () => {
      * WHISPER
      */
 
-    logger.info('Connecting Whisper...')
+    logger.info('[MAIN.index] Connecting Whisper...')
 
     await connectWhisper()
 
-    logger.info('Whisper connected')
+    logger.info('[MAIN.index] Whisper connected')
 
     onPartial((text) => {
-        logger.debug('partial:' + text)
+        logger.debug('[MAIN.index] partial:' + text)
 
         sendToRenderer('assistant:partial_transcript', {
             text
         })
     })
 
-    onFinal((text) => {
-        logger.info('final:' + text)
+    onFinal(async (text) => {
+        logger.info('[MAIN.index] final:' + text)
 
-        sendToRenderer('assistant:final_transcript', {
-            text
-        })
+        sendToRenderer('assistant:final_transcript', { text })
 
-        /*
-         * Back to sleep
-         */
+        conversationHistory.push({ role: 'user', content: text })
 
-        logger.info('Assistant sleeping')
+        sendToRenderer('assistant:thinking_start')
 
-        assistantAwake = false
-        isUserSpeaking = false
+        try {
+            let sentenceBuffer = ''
+            let firstToken = true
 
-        resumeWakeWord()
+            const reply = await askOllamaStream([...conversationHistory], (token) => {
+                if (firstToken) {
+                    sendToRenderer('assistant:llm_stream_start')
+                    firstToken = false
+                }
+
+                sendToRenderer('assistant:llm_token', { token })
+
+                sentenceBuffer += token
+
+                const { chunks, remaining } = extractTTSChunks(sentenceBuffer)
+                for (const chunk of chunks) queueSpeak(chunk)
+                sentenceBuffer = remaining
+            })
+
+            // Flush any remaining text as the last TTS chunk
+            if (sentenceBuffer.trim()) {
+                queueSpeak(sentenceBuffer.trim())
+            }
+
+            conversationHistory.push({ role: 'assistant', content: reply })
+            sendToRenderer('assistant:llm_response', { text: reply })
+
+            // Wait for TTS to finish before resuming wake word
+            ttsEvents.once('speaking-end', () => {
+                sendToRenderer('assistant:speaking_end')
+                logger.info('[MAIN.index] TTS done — assistant sleeping')
+                assistantAwake = false
+                isUserSpeaking = false
+                resumeWakeWord()
+            })
+
+            sendToRenderer('assistant:speaking_start')
+        } catch (err) {
+            logger.error('[MAIN.index] Ollama error: ' + String(err))
+            stopSpeaking()
+            sendToRenderer('assistant:llm_error', { message: String(err) })
+            assistantAwake = false
+            isUserSpeaking = false
+            resumeWakeWord()
+        }
     })
 
     /*
      * MICROPHONE
      */
 
-    logger.info('Starting microphone...')
+    logger.info('[MAIN.index] Starting microphone...')
 
     startMicrophone(
         (samples) => {
@@ -211,7 +297,8 @@ app.whenReady().then(async () => {
         (err) => {
             sendToRenderer('assistant:microphone_error', { message: err.message })
             logger.error(
-                'Erreur micro (callback):' + (err instanceof Error ? err.message : String(err))
+                '[MAIN.index] Erreur micro (callback):' +
+                    (err instanceof Error ? err.message : String(err))
             )
             // TODO: afficher une notification UI ou fallback
         }
@@ -221,14 +308,15 @@ app.whenReady().then(async () => {
      * WAKE WORD
      */
 
-    logger.info('Starting wake word...')
+    logger.info('[MAIN.index] Starting wake word...')
 
-    startWakeWord(async () => {
+    const wakeWordProc = startWakeWord(async () => {
         if (assistantAwake) return
 
-        logger.info('\nWAKE DETECTED')
+        logger.info('[MAIN.index] \nWAKE DETECTED')
 
         assistantAwake = true
+        injectWakeWord('Jarvis')
 
         pauseWakeWord()
 
@@ -248,6 +336,15 @@ app.whenReady().then(async () => {
             createWindow()
         }
     })
+})
+
+app.on('before-quit', () => {
+    logger.info('[MAIN.index] Shutting down...')
+    stopSpeaking()
+    disconnectWhisper()
+    vadProc?.stop()
+    wakeWordProc?.stop()
+    logger.info('[MAIN.index] Cleanup done')
 })
 
 app.on('window-all-closed', () => {

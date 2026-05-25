@@ -175,6 +175,8 @@ export default function createOrb(
     const COL_SPEAK = new THREE.Color(0x5ab8f0)
     const COL_BRIGHT = new THREE.Color(0xb8eeff)
     const COL_FLASH = new THREE.Color(0xffffff)
+    const COL_ERROR = new THREE.Color(0xff2200)
+    const COL_ERROR_FLICKER = new THREE.Color(0xff8844)
     const _tmpColor = new THREE.Color()
     const _lineColorMemory = new THREE.Color(0x4ca8e8)
 
@@ -398,6 +400,20 @@ export default function createOrb(
                     })
 
                     break
+
+                case 'error':
+                    // Error: contracted, erratic, red flicker
+                    assignTargets({
+                        radius: 20,
+                        speed: { min: 0.6, max: 1.0 },
+                        bright: { min: 0.35, max: 0.65 },
+                        size: 0.12,
+                        lineAmount: { min: 0.1, max: 0.4 },
+                        electronRate: 0,
+                        vortex: { min: 0.4, max: 0.7 },
+                        breathAmp: { min: 0.6, max: 1.0 }
+                    })
+                    break
             }
         }
 
@@ -479,6 +495,18 @@ export default function createOrb(
                             break
                     }
                     break
+
+                case 'error':
+                    // Snap into error fast from any state
+                    L = 2
+                    shockwave = 0.5
+                    break
+
+                case 'idle':
+                    if (lastState === 'error') {
+                        L = 0.5
+                    }
+                    break
             }
             lastState = state
         }
@@ -519,6 +547,14 @@ export default function createOrb(
             case 'startup':
                 L = Math.min(startupTimer / 13000, 0.022) // Gradually increase L during startup for smooth transition
                 if (startupTimer > 15) L = 0.1
+                break
+            case 'error':
+                if (L > 0.06) {
+                    L = L - 0.005
+                    L = Math.max(L, 0.06)
+                } else {
+                    L = 0.06
+                }
                 break
         }
 
@@ -851,7 +887,15 @@ export default function createOrb(
                 ParticleMaterial.size = targetSize
             }
 
-            if (state === 'thinking') {
+            if (state === 'error') {
+                // Rapid flicker between red and orange
+                const flicker = 0.4 + 0.6 * Math.abs(Math.sin(t * 14.0 + Math.random() * 0.3))
+                _tmpColor.lerpColors(COL_ERROR, COL_ERROR_FLICKER, flicker)
+                ParticleMaterial.color.lerp(_tmpColor, 0.08)
+                _lineColorMemory.lerp(_tmpColor, 0.04)
+                LineMaterial.color.copy(_lineColorMemory)
+                ElectronMaterial.color.set(COL_ERROR_FLICKER)
+            } else if (state === 'thinking') {
                 ParticleMaterial.color.lerp(COL_THINK, 0.015)
                 _lineColorMemory.lerp(COL_THINK, 0.008)
                 LineMaterial.color.copy(_lineColorMemory)

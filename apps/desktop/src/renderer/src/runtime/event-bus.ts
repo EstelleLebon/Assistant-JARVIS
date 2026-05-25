@@ -6,6 +6,8 @@ type RuntimeEvents = {
     'speech-end': void
     'thinking-start': void
     'thinking-end': void
+    'speaking-start': void
+    'speaking-end': void
     'tool-running': { tool: string }
     'tool-finished': { tool: string }
     error: { message: string }
@@ -45,11 +47,21 @@ class EventBus {
 
             case 'speech-start':
                 runtimeState.setState({
-                    mode: 'speaking'
+                    mode: 'listening'
                 })
                 break
 
             case 'speech-end':
+                // stay in listening until thinking-start fires
+                break
+
+            case 'speaking-start':
+                runtimeState.setState({
+                    mode: 'speaking'
+                })
+                break
+
+            case 'speaking-end':
                 runtimeState.setState({
                     mode: 'idle'
                 })

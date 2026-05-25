@@ -17,7 +17,6 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler(LOG_PATH, encoding="utf-8"),
-        logging.StreamHandler()
     ]
 )
 
@@ -57,6 +56,7 @@ last_partial = ""
 
 is_speaking = False
 speech_end_task = None
+initial_prompt = None
 
 
 def clean_text(text: str):
@@ -80,6 +80,7 @@ def reset_state():
 
     global audio_buffer
     global last_partial
+    global initial_prompt
 
     audio_buffer = np.array(
         [],
@@ -87,6 +88,7 @@ def reset_state():
     )
 
     last_partial = ""
+    initial_prompt = None
 
 
 async def send_partial(ws, text):
@@ -110,6 +112,7 @@ async def transcribe_loop(ws):
     global audio_buffer
     global last_partial
     global is_speaking
+    global initial_prompt
 
     while True:
 
@@ -139,7 +142,9 @@ async def transcribe_loop(ws):
                 temperature=0,
 
                 condition_on_previous_text=True,
-                vad_filter=False
+                vad_filter=False,
+
+                initial_prompt=initial_prompt
             )
 
             text = " ".join(
@@ -228,7 +233,12 @@ async def handler(ws):
                     "speech_start"
                 ):
 
-                    log_info("speech_start")
+                    initial_prompt = event.get("initial_prompt", None)
+                    if event.get("reset", False):
+                        reset_state()
+                        log_info(f"speech_start new session (prompt={initial_prompt!r})")
+                    else:
+                        log_info("speech_start resume")
 
                     is_speaking = True
 
@@ -336,7 +346,7 @@ async def main():
             e
         )
 
-    for _ in range(30):
+    for _ in range(50):
 
         with socket.socket(
             socket.AF_INET,
@@ -353,7 +363,7 @@ async def main():
 
             except OSError:
 
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
 
     else:
 
@@ -369,7 +379,8 @@ async def main():
     ):
 
         print(
-            "ASR server started"
+            "ASR server started",
+            flush=True
         )
 
         await asyncio.Future()

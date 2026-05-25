@@ -14,10 +14,14 @@ export class OrbController {
         })
 
         eventBus.on('speech-start', () => {
+            this.setState('listening')
+        })
+
+        eventBus.on('speaking-start', () => {
             this.setState('speaking')
         })
 
-        eventBus.on('speech-end', () => {
+        eventBus.on('speaking-end', () => {
             this.setState('idle')
         })
 

@@ -1,6 +1,6 @@
-import { execa } from 'execa'
 import path from 'path'
 import logger from '../../../logger'
+import pyServer from '../../../pyServers/pyServer'
 
 let paused = false
 const PYTHON = '/data/assistant/.venv/bin/python'
@@ -14,49 +14,36 @@ export function resumeWakeWord(): void {
 }
 
 export function startWakeWord(onDetect: () => void) {
-    const script = '/data/assistant/apps/desktop/src/main/wakeword/wake_word_listener.py'
-
-    const model = path.join(process.cwd(), 'resources', 'jarvis.onnx')
-
-    const proc = execa(PYTHON, [script, '--model', model], {
-        cwd: '/data/assistant',
-        env: {
-            ...process.env,
-            VIRTUAL_ENV: '/data/assistant/.venv',
-            PATH: `/data/assistant/.venv/bin:${process.env.PATH}`
-        }
-    })
-
-    logger.info('Wake word process started with PID:' + proc.pid)
-
-    proc.stdout?.on('data', (data) => {
-        const text = data.toString().trim()
-
-        if (!paused && text === 'DETECTED') {
-            onDetect()
-        }
-    })
-
-    proc.stderr?.on('data', (data) => {
-        const errStr = data.toString()
-        if (errStr.includes('En écoute...')) {
-            logger.info(`Wake word: ${errStr}`)
-        } else {
+    const pyProc = new pyServer(
+        '/data/assistant/apps/desktop/src/main/speech/STT/wakeword/wake_word_listener.py',
+        PYTHON,
+        ['--model', path.join(process.cwd(), 'resources', 'jarvis.onnx')],
+        { cwd: '/data/assistant' },
+        (data) => {
+            const text = data.toString().trim()
+            if (!paused && text === 'DETECTED') {
+                onDetect()
+            }
+        },
+        (error) => {
+            const errStr = error instanceof Error ? error.message : String(error)
+            if (errStr.includes('En écoute...')) {
+                pyProc!.status = 'running'
+                logger.info(`Wake word: ${errStr}`)
+            } else {
+                logger.error('Wake word process error:' + errStr)
+            }
+        },
+        (error) => {
+            const errStr = error instanceof Error ? error.message : String(error)
             logger.error('Wake word process error:' + errStr)
+            pyProc!.status = 'error'
+        },
+        (code, signal) => {
+            logger.info(`Wake word process closed with code ${code} and signal ${signal}`)
+            pyProc!.status = 'stopped'
         }
-        // logger.error(
-        //   "Wake word process error:" +
-        //   (err instanceof Error
-        //     ? err.message
-        //     : String(err))
-        // )
-    })
-
-    proc.catch((err) => {
-        logger.error(
-            'Wake word process error:' + (err instanceof Error ? err.message : String(err))
-        )
-    })
-
-    return proc
+    )
+    pyProc.start()
+    return pyProc
 }

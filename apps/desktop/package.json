@@ -34,7 +34,8 @@
     "onnxruntime-node": "^1.26.0",
     "three": "^0.184.0",
     "winston": "^3.19.0",
-    "ws": "^8.20.1"
+    "ws": "^8.20.1",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

@@ -1,78 +1,71 @@
 import logger from '../../../logger'
+import pyServer, { PyServerStatus } from '../../../pyServers/pyServer'
 
 export class WhisperServer {
-    private status: 'stopped' | 'starting' | 'running' = 'stopped'
+    private pyProc: pyServer | null = null
+    private restartAttempts = 0
+    private maxRestartAttempts = 5
 
-    public getStatus() {
-        return this.status
+    public getStatus(): PyServerStatus {
+        return this.pyProc ? this.pyProc.status : 'stopped'
+    }
+
+    stop() {
+        this.maxRestartAttempts = 0 // prevent auto-restart
+        this.pyProc?.stop()
+        this.pyProc = null
     }
 
     async start() {
-        logger.info('Starting Whisper server...')
-        if (this.status !== 'stopped') return
-
-        this.status = 'starting'
-        /*
-         * Start Python server
-         */
-        const { spawn } = await import('child_process')
-        // Utilise le venv Python et le bon chemin du serveur
-        const pythonPath = '/data/assistant/.venv/bin/python'
-        const serverPath = '/data/assistant/apps/desktop/src/main/speech/STT/whisper/asr_server.py'
-        const proc = spawn(pythonPath, ['-u', serverPath], {
-            cwd: '/data/assistant',
-            env: {
-                ...process.env,
-                VIRTUAL_ENV: '/data/assistant/.venv',
-                PATH: `/data/assistant/.venv/bin:${process.env.PATH}`
+        logger.info('[WhisperServer] Starting Whisper server...')
+        this.pyProc = new pyServer(
+            '/data/assistant/apps/desktop/src/main/speech/STT/whisper/asr_server.py',
+            '/data/assistant/.venv/bin/python',
+            [],
+            { cwd: '/data/assistant' },
+            (data) => {
+                const str = data.toString()
+                if (str.includes('ASR server started')) {
+                    this.pyProc!.status = 'running'
+                    this.restartAttempts = 0 // reset attempts on successful start
+                    logger.info('[WhisperServer] Whisper server is now running.')
+                } else logger.info(`Whisper server: ${str}`)
+            },
+            (error) => {
+                const errStr = error instanceof Error ? error.message : String(error)
+                if (errStr.includes('[INFO]')) {
+                    logger.info(`[WhisperServer] Whisper server: ${errStr}`)
+                } else {
+                    logger.error('[WhisperServer] Whisper server process error:' + errStr)
+                    this.pyProc!.status = 'error'
+                }
+            },
+            (error) => {
+                const errStr = error instanceof Error ? error.message : String(error)
+                if (errStr.includes('[INFO]')) {
+                    logger.info(`[WhisperServer] Whisper server: ${errStr}`)
+                } else {
+                    logger.error('[WhisperServer] Whisper server process error:' + errStr)
+                    this.pyProc!.status = 'error'
+                }
+            },
+            (code, signal) => {
+                logger.info(
+                    `[WhisperServer] Whisper server process closed with code ${code} and signal ${signal}`
+                )
+                // Relance automatique si crash (max tentatives)
+                this.pyProc!.status = 'stopped'
+                if (code !== 0 && this.restartAttempts < this.maxRestartAttempts) {
+                    this.restartAttempts++
+                    setTimeout(() => {
+                        logger.warn('[WhisperServer] Relance automatique du serveur Whisper...')
+                        this.start()
+                    }, 2000 * this.restartAttempts) // délai exponentiel
+                }
             }
-        })
-
-        proc.stdout.on('data', (data) => {
-            const str = data.toString()
-            logger.info(`Whisper server: ${str}`)
-            if (str.includes('ASR server started')) {
-                this.status = 'running'
-            }
-        })
-
-        proc.stderr.on('data', (data) => {
-            const errStr = data.toString()
-            if (errStr.includes('[INFO]')) {
-                logger.info(`Whisper server: ${errStr}`)
-            } else {
-                logger.error('Whisper server process error:' + errStr)
-                // TODO: notifier UI ou log fichier
-            }
-        })
-
-        proc.on('error', (err) => {
-            const errStr = err instanceof Error ? err.message : String(err)
-            if (errStr.includes('[INFO]')) {
-                logger.info(`Whisper server: ${errStr}`)
-            } else {
-                logger.error('Whisper server process error:' + errStr)
-                this.status = 'stopped'
-            }
-            // logger.error('Whisper server process error:' +
-            //     (err instanceof Error
-            //       ? err.message
-            //       : String(err)))
-            // TODO: notifier UI ou fallback
-        })
-
-        proc.on('close', (code) => {
-            logger.info(`Whisper server process closed with code ${code}`)
-            this.status = 'stopped'
-            // Relance automatique si crash (max tentatives)
-            if (code !== 0) {
-                // Optionnel: limiter le nombre de relances
-                setTimeout(() => {
-                    logger.warn('Relance automatique du serveur Whisper...')
-                    this.start()
-                }, 2000)
-            }
-        })
+        )
+        logger.info('[WhisperServer] Whisper server process initialized, starting...')
+        this.pyProc.start()
     }
 }
 
