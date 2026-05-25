@@ -5,8 +5,12 @@ build
 .cache
 .vite
 .env
+.venv
 coverage
 *.log
 .DS_Store
 .old
 .docs
+whisper.cpp
+tmp
+resources

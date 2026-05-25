@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Détection du wake word "Jarvis" via OpenWakeWord.
 Reçoit --model <chemin_onnx>, écrit "DETECTED" sur stdout à chaque détection.
@@ -40,7 +39,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        oww = Model(wakeword_model_paths=[args.model])
+        oww = Model(wakeword_models=[args.model], inference_framework="onnx")
     except Exception as e:
         print(f"[wake_word] Impossible de charger le modèle : {e}", file=sys.stderr)
         sys.exit(1)

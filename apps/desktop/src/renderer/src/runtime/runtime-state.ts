@@ -1,69 +1,64 @@
-export type RuntimeMode =
-  | "idle"
-  | "listening"
-  | "thinking"
-  | "speaking"
-  | "sleep"
+export type RuntimeMode = 'idle' | 'listening' | 'thinking' | 'speaking' | 'sleep'
 
 export interface RuntimeState {
-  mode: RuntimeMode
+    mode: RuntimeMode
 
-  wakeWordEnabled: boolean
+    wakeWordEnabled: boolean
 
-  microphoneMuted: boolean
+    microphoneMuted: boolean
 
-  activeTool: string | null
+    activeTool: string | null
 
-  connectedTools: string[]
+    connectedTools: string[]
 
-  lastInteractionAt: number
+    lastInteractionAt: number
 }
 
 type Listener = (state: RuntimeState) => void
 
 class RuntimeStateStore {
-  private state: RuntimeState = {
-    mode: "idle",
+    private state: RuntimeState = {
+        mode: 'idle',
 
-    wakeWordEnabled: true,
+        wakeWordEnabled: true,
 
-    microphoneMuted: false,
+        microphoneMuted: false,
 
-    activeTool: null,
+        activeTool: null,
 
-    connectedTools: [],
+        connectedTools: [],
 
-    lastInteractionAt: Date.now(),
-  }
-
-  private listeners = new Set<Listener>()
-
-  getState() {
-    return this.state
-  }
-
-  subscribe(listener: Listener) {
-    this.listeners.add(listener)
-
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
-
-  private notify() {
-    for (const listener of this.listeners) {
-      listener(this.state)
-    }
-  }
-
-  setState(partial: Partial<RuntimeState>) {
-    this.state = {
-      ...this.state,
-      ...partial,
+        lastInteractionAt: Date.now()
     }
 
-    this.notify()
-  }
+    private listeners = new Set<Listener>()
+
+    getState() {
+        return this.state
+    }
+
+    subscribe(listener: Listener) {
+        this.listeners.add(listener)
+
+        return () => {
+            this.listeners.delete(listener)
+        }
+    }
+
+    private notify() {
+        for (const listener of this.listeners) {
+            listener(this.state)
+        }
+    }
+
+    setState(partial: Partial<RuntimeState>) {
+        this.state = {
+            ...this.state,
+            ...partial
+        }
+
+        this.notify()
+    }
 }
 
 export const runtimeState = new RuntimeStateStore()
