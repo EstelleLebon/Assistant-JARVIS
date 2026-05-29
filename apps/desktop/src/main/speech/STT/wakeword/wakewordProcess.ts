@@ -1,8 +1,10 @@
 import path from 'path'
 import logger from '../../../logger'
 import pyServer from '../../../pyServers/pyServer'
+import type { PyServerStatus } from '../../../pyServers/pyServer'
 
 let paused = false
+let wakeWordProc: InstanceType<typeof pyServer> | null = null
 const PYTHON = '/data/assistant/.venv/bin/python'
 
 export function pauseWakeWord(): void {
@@ -13,8 +15,15 @@ export function resumeWakeWord(): void {
     paused = false
 }
 
-export function startWakeWord(onDetect: () => void) {
-    const pyProc = new pyServer(
+export function stopWakeWord(): void {
+    wakeWordProc?.stop()
+    wakeWordProc = null
+}
+
+export function startWakeWord(onDetect: () => void, onStatus?: (status: PyServerStatus) => void) {
+    onStatus?.('starting')
+
+    wakeWordProc = new pyServer(
         '/data/assistant/apps/desktop/src/main/speech/STT/wakeword/wake_word_listener.py',
         PYTHON,
         ['--model', path.join(process.cwd(), 'resources', 'jarvis.onnx')],
@@ -28,7 +37,8 @@ export function startWakeWord(onDetect: () => void) {
         (error) => {
             const errStr = error instanceof Error ? error.message : String(error)
             if (errStr.includes('En écoute...')) {
-                pyProc!.status = 'running'
+                wakeWordProc!.status = 'running'
+                onStatus?.('running')
                 logger.info(`Wake word: ${errStr}`)
             } else {
                 logger.error('Wake word process error:' + errStr)
@@ -37,13 +47,15 @@ export function startWakeWord(onDetect: () => void) {
         (error) => {
             const errStr = error instanceof Error ? error.message : String(error)
             logger.error('Wake word process error:' + errStr)
-            pyProc!.status = 'error'
+            wakeWordProc!.status = 'error'
+            onStatus?.('error')
         },
         (code, signal) => {
             logger.info(`Wake word process closed with code ${code} and signal ${signal}`)
-            pyProc!.status = 'stopped'
+            wakeWordProc!.status = 'stopped'
+            onStatus?.('stopped')
         }
     )
-    pyProc.start()
-    return pyProc
+    wakeWordProc.start()
+    return wakeWordProc
 }

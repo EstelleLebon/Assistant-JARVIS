@@ -12,5 +12,7 @@ export type OrbState =
 export interface OrbAPI {
     setState(state: OrbState): void
     setVolume(volume: number): void
+    setAnalyser(analyser: AnalyserNode | null): void
+    triggerDemo(): void
     destroy(): void
 }

@@ -1,9 +1,11 @@
 import { runtimeState } from './runtime-state'
 
 type RuntimeEvents = {
+    'startup-complete': void
     'wake-word-detected': void
     'speech-start': void
     'speech-end': void
+    'speech-expired': void
     'thinking-start': void
     'thinking-end': void
     'speaking-start': void
@@ -53,6 +55,10 @@ class EventBus {
 
             case 'speech-end':
                 // stay in listening until thinking-start fires
+                break
+
+            case 'speech-expired':
+                runtimeState.setState({ mode: 'idle' })
                 break
 
             case 'speaking-start':

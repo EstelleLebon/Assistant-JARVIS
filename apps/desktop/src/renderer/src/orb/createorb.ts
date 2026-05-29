@@ -3,10 +3,33 @@ import type { OrbAPI, OrbState } from './types'
 import * as THREE from 'three'
 import { Timer } from 'three'
 
+// --- Panel Connection Manager ---
+type PanelConnectionOptions = {
+    numLines?: number
+    color?: string
+    opacity?: number
+    thickness?: number
+    anchorIndex?: number
+}
+type PanelConnectionRegistration = {
+    id: string
+    getPoints: () => { x: number; y: number }[]
+    options: PanelConnectionOptions
+}
+
 export default function createOrb(
     canvas: HTMLCanvasElement,
     onStateChangeRef?: RefObject<((s: OrbState) => void) | null>
-): OrbAPI {
+): OrbAPI & {
+    getParticleScreenPosition: (index: number) => { x: number; y: number }
+    registerPanelConnection: (
+        id: string,
+        getPoints: () => { x: number; y: number }[],
+        options?: PanelConnectionOptions
+    ) => void
+    unregisterPanelConnection: (id: string) => void
+    updatePanelConnection: (id: string, options: Partial<PanelConnectionOptions>) => void
+} {
     let destroyed = false
     const N = 64000
     let L = 0.022
@@ -53,10 +76,10 @@ export default function createOrb(
         depthWrite: false
     })
 
-    const points = new THREE.Points(ParticleGeometry, ParticleMaterial)
-    GlobalScene.add(points)
+    const particleMesh = new THREE.Points(ParticleGeometry, ParticleMaterial)
+    GlobalScene.add(particleMesh)
 
-    // ── Connection lines ────────────────────────────────────────────────────────
+    // ── Connection lines (particles) ────────────────────────────────────────────
     const MAX_LINES = 8000
     const LinePositions = new Float32Array(MAX_LINES * 6)
     const LineGeometry = new THREE.BufferGeometry()
@@ -73,6 +96,54 @@ export default function createOrb(
 
     const lines = new THREE.LineSegments(LineGeometry, LineMaterial)
     GlobalScene.add(lines)
+
+    // ── Panel connection lines (UI panels) ─────────────────────────────────────
+    class PanelConnectionManager {
+        private panels: Map<string, PanelConnectionRegistration> = new Map()
+
+        registerPanel(
+            id: string,
+            getPoints: () => { x: number; y: number }[],
+            options: PanelConnectionOptions = {}
+        ) {
+            // Clamp anchorIndex si fourni
+            let anchorIndex = options.anchorIndex
+            if (typeof anchorIndex === 'number' && anchorIndex >= 0) {
+                // Suppose N particules
+                const nParticles = ParticlePositions.length / 3
+                anchorIndex = anchorIndex % nParticles
+                options = { ...options, anchorIndex }
+            }
+            this.panels.set(id, { id, getPoints, options })
+        }
+        unregisterPanel(id: string) {
+            this.panels.delete(id)
+        }
+        updatePanelOptions(id: string, options: Partial<PanelConnectionOptions>) {
+            const reg = this.panels.get(id)
+            if (reg) {
+                reg.options = { ...reg.options, ...options }
+            }
+        }
+        getAll() {
+            return Array.from(this.panels.values())
+        }
+    }
+    const panelConnectionManager = new PanelConnectionManager()
+    const MAX_PANEL_LINES = 128000
+    const PanelLinePositions = new Float32Array(MAX_PANEL_LINES * 6)
+    const PanelLineGeometry = new THREE.BufferGeometry()
+    PanelLineGeometry.setAttribute('position', new THREE.BufferAttribute(PanelLinePositions, 3))
+    PanelLineGeometry.setDrawRange(0, 0)
+    const PanelLineMaterial = new THREE.LineBasicMaterial({
+        color: 0x4ca8e8,
+        transparent: true,
+        opacity: 0.02,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    })
+    const panelLines = new THREE.LineSegments(PanelLineGeometry, PanelLineMaterial)
+    GlobalScene.add(panelLines)
 
     // ── Electrons ──────────────────────────────────────────────────────────────
     const MAX_ELECTRONS = 2000
@@ -439,6 +510,12 @@ export default function createOrb(
                             // transitionEnergy = 0.5;
                             L = 1
                             break
+                        case 'error':
+                            // transitionEnergy = 1.5;
+                            L = 0.5
+                            break
+                        default:
+                            L = 0.7
                     }
                     break
                 case 'listening':
@@ -457,6 +534,12 @@ export default function createOrb(
                             // transitionEnergy = 1.2;
                             L = 0.5
                             break
+                        case 'error':
+                            // transitionEnergy = 1.5;
+                            L = 0.5
+                            break
+                        default:
+                            L = 0.7
                     }
                     break
                 case 'thinking':
@@ -475,6 +558,12 @@ export default function createOrb(
                             // transitionEnergy = 1.4;
                             L = 0.5
                             break
+                        case 'error':
+                            // transitionEnergy = 1.8;
+                            L = 0.5
+                            break
+                        default:
+                            L = 0.7
                     }
                     break
                 case 'speaking':
@@ -493,6 +582,16 @@ export default function createOrb(
                             // transitionEnergy = 2;
                             L = 2
                             break
+                        case 'idle':
+                            // transitionEnergy = 1.5;
+                            L = 1
+                            break
+                        case 'error':
+                            // transitionEnergy = 2.5;
+                            L = 1
+                            break
+                        default:
+                            L = 0.7
                     }
                     break
 
@@ -500,12 +599,6 @@ export default function createOrb(
                     // Snap into error fast from any state
                     L = 2
                     shockwave = 0.5
-                    break
-
-                case 'idle':
-                    if (lastState === 'error') {
-                        L = 0.5
-                    }
                     break
             }
             lastState = state
@@ -623,10 +716,10 @@ export default function createOrb(
         cloudZVel *= 0.94
         cloudZ += cloudZVel
 
-        points.rotation.x = spinX
-        points.rotation.y = spinY
-        points.rotation.z = spinZ
-        points.position.z = cloudZ
+        particleMesh.rotation.x = spinX
+        particleMesh.rotation.y = spinY
+        particleMesh.rotation.z = spinZ
+        particleMesh.position.z = cloudZ
         lines.rotation.x = spinX
         lines.rotation.y = spinY
         lines.rotation.z = spinZ
@@ -753,7 +846,7 @@ export default function createOrb(
         }
         p.needsUpdate = true
 
-        // ── Connection lines ──────────────────────────────────────────────────────
+        // ── Connection lines (particles) ────────────────────────────────────────
         if (lineAmount > 0) {
             const lp = LineGeometry.getAttribute('position') as THREE.BufferAttribute
             const la = lp.array as Float32Array
@@ -761,7 +854,6 @@ export default function createOrb(
             const maxDist = lineDistance * (1 + bass * (speaking ? 0.8 : 0.5))
             const maxDistSq = maxDist * maxDist
             const step = Math.max(1, Math.floor(N / 600))
-
             for (let i = 0; i < N && lineCount < MAX_LINES; i += step) {
                 const i3 = i * 3
                 const x1 = a[i3],
@@ -787,7 +879,6 @@ export default function createOrb(
             LineGeometry.setDrawRange(0, lineCount * 2)
             lp.needsUpdate = true
             LineMaterial.opacity = 0.01 + shockwave * 0.15
-
             activeConnections = []
             for (let c = 0; c < Math.min(lineCount, 500); c++) {
                 const ci = c * 6
@@ -804,6 +895,51 @@ export default function createOrb(
             LineGeometry.setDrawRange(0, 0)
             activeConnections = []
         }
+
+        // ── Panel connection lines (UI panels) ───────────────────────────────
+        const panelRegs = panelConnectionManager.getAll()
+        const plp = PanelLineGeometry.getAttribute('position') as THREE.BufferAttribute
+        const pla = plp.array as Float32Array
+        let panelLineCount = 0
+        for (const reg of panelRegs) {
+            const points = reg.getPoints()
+            const numLines = reg.options.numLines || points.length
+            // Origine = particule anchorIndex si fourni, sinon (0,0,0)
+            let anchorPos = new THREE.Vector3(0, 0, 0)
+            if (typeof reg.options.anchorIndex === 'number') {
+                const posAttr = ParticleGeometry.getAttribute('position')
+                const idx = reg.options.anchorIndex % (posAttr.count)
+                anchorPos = new THREE.Vector3(
+                    posAttr.getX(idx),
+                    posAttr.getY(idx),
+                    posAttr.getZ(idx)
+                )
+                particleMesh.localToWorld(anchorPos)
+            }
+            for (let i = 0; i < Math.min(points.length, numLines * 4); i++) {
+                if (panelLineCount >= MAX_PANEL_LINES) break
+                // 2. Use panel point as screen space
+                const pt = points[i]
+                // 3. Unproject panel point to 3D world (approximate: z=0)
+                const panelVec = new THREE.Vector3(
+                    (pt.x / window.innerWidth) * 2 - 1,
+                    -((pt.y / window.innerHeight) * 2 - 1),
+                    0
+                )
+                panelVec.unproject(GlobalCamera)
+                // 4. Line from anchorPos to panelVec
+                const idx6 = panelLineCount * 6
+                pla[idx6] = anchorPos.x
+                pla[idx6 + 1] = anchorPos.y
+                pla[idx6 + 2] = anchorPos.z
+                pla[idx6 + 3] = panelVec.x
+                pla[idx6 + 4] = panelVec.y
+                pla[idx6 + 5] = panelVec.z
+                panelLineCount++
+            }
+        }
+        PanelLineGeometry.setDrawRange(0, panelLineCount * 2)
+        plp.needsUpdate = true
 
         // ── Electrons ─────────────────────────────────────────────────────────────
         const maxElec = speaking ? 10 : 3
@@ -973,6 +1109,34 @@ export default function createOrb(
             destroyed = true
             window.removeEventListener('resize', onResize)
             GlobalRenderer.dispose()
+        },
+        /**
+         * Get the screen position (in px) of a particle by index.
+         */
+        getParticleScreenPosition(index: number) {
+            // Clamp index
+            const i = Math.max(0, Math.min(N - 1, index))
+            const posAttr = ParticleGeometry.getAttribute('position')
+            if (!posAttr) return { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+            const x = posAttr.getX(i)
+            const y = posAttr.getY(i)
+            const z = posAttr.getZ(i)
+            // Project 3D to 2D — apply mesh world transform (spin + cloudZ drift)
+            const vec = new THREE.Vector3(x, y, z)
+            particleMesh.localToWorld(vec)
+            vec.project(GlobalCamera)
+            const sx = ((vec.x + 1) / 2) * window.innerWidth
+            const sy = ((1 - vec.y) / 2) * window.innerHeight
+            return { x: sx, y: sy }
+        },
+        registerPanelConnection(id, getPoints, options = {}) {
+            panelConnectionManager.registerPanel(id, getPoints, options)
+        },
+        unregisterPanelConnection(id) {
+            panelConnectionManager.unregisterPanel(id)
+        },
+        updatePanelConnection(id, options) {
+            panelConnectionManager.updatePanelOptions(id, options)
         }
     }
 }

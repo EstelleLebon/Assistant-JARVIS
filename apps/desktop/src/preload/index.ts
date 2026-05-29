@@ -2,10 +2,18 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('jarvis', {
-    sendAudioChunk: (chunk: Float32Array) => ipcRenderer.send('audio:chunk', Array.from(chunk)),
+    clearConversation: () => ipcRenderer.send('conversation:clear'),
+    setTTSVolume: (volume: number) => ipcRenderer.send('tts:set-volume', { volume }),
+    replayMessage: (text: string) => ipcRenderer.send('tts:replay', { text }),
     onWake: (callback: () => void) => {
         ipcRenderer.on('assistant:wake', callback)
-    }
+    },
+    sendUserText: (text) => ipcRenderer.send('assistant:user_text', text),
+    setMicMuted: (muted: boolean) => ipcRenderer.send('mic:set-muted', { muted }),
+    notifyStartupComplete: () => ipcRenderer.send('app:startup-complete'),
+    onNotification: (
+        callback: (n: { id: string; title: string; message: string; timestamp: number }) => void
+    ) => ipcRenderer.on('assistant:notification', (_, n) => callback(n))
 })
 
 // Custom APIs for renderer

@@ -3,6 +3,7 @@ packages:
   - services/*
   - packages/*
 allowBuilds:
+  better-sqlite3: true
   core-js: true
   electron: true
   electron-winstaller: false

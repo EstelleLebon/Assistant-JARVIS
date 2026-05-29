@@ -1,116 +1,65 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, session, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 import icon from '../../resources/icon.png?asset'
 
-import { startWakeWord, pauseWakeWord, resumeWakeWord } from './speech/STT/wakeword/wakewordProcess'
-
-import { startVAD } from './speech/STT/vad/vadProcess'
-
-import {
-    connectWhisper,
-    disconnectWhisper,
-    sendAudio,
-    sendSpeechStart,
-    sendSpeechEnd,
-    onPartial,
-    onFinal,
-    injectWakeWord
-} from './speech/STT/whisper/wsWhisper'
-
-import { startMicrophone } from './speech/STT/audio/microphone'
-
 import logger from './logger'
-import { askOllamaStream } from './llm/ollamaClient'
-import { initTTS, queueSpeak, stopSpeaking, ttsEvents } from './speech/TTS/ttsPlayer'
+import { initTTS, stopSpeaking, onPiperStatus, ttsEvents, isTTSPlaying, queueSpeak } from './speech/TTS/ttsPlayer'
+import Conversation from './speech/conversation/Conversation'
+import SpeechSession from './speech/conversation/SpeechSession'
+import { flushServiceStatuses, updateServiceStatus } from './serviceStatus'
+import { registerIpcHandlers } from './ipc/handlers'
+import { startTokenizerServer, stopTokenizerServer } from './llm/tokenizerServerInstance'
+import { startChromeSidecar, onSidecarStatus } from './sttSidecar'
+import type { ChromeSidecar } from './sttSidecar'
+import { startWakeWord, pauseWakeWord, resumeWakeWord, stopWakeWord } from './speech/STT/wakeword/wakewordProcess'
+import { ensureToolServers, stopToolServers } from './tools/toolsServerManager'
+import { startTaskQueue, drainAndStop, pushTask } from './taskQueue'
+import { startHeartbeatScheduler, stopHeartbeatScheduler, pauseHeartbeat, resumeHeartbeat } from './heartbeat/scheduler'
+import { checkTemporalRecovery, recordHeartbeatTimestamp } from './heartbeat/temporalRecovery'
+import { configureAttentionEngine } from './heartbeat/attentionEngine'
+import { initNotifications, sendNotification } from './notifications'
 
-/*
- * TTS chunk extraction
- * Hard split: . ! ? … ; followed by space
- * Soft split: , — \n only if segment >= MIN_SOFT_CHARS
- */
-const MIN_SOFT_CHARS = 20
+let speechSession: SpeechSession | null = null
+let sidecar: ChromeSidecar | null = null
+let recoveryGapMs = 0
 
-function extractTTSChunks(buffer: string): { chunks: string[]; remaining: string } {
-    const chunks: string[] = []
-    let segStart = 0
-    let i = 0
-
-    while (i < buffer.length) {
-        const ch = buffer[i]
-        const isHard = '.!?…;'.includes(ch)
-        const isSoft = ch === ',' || ch === '—' || ch === '\n'
-
-        if (isHard || (isSoft && i - segStart >= MIN_SOFT_CHARS)) {
-            // consume consecutive punctuation (e.g. "..." or "!!")
-            if (isHard) {
-                while (i + 1 < buffer.length && '.!?'.includes(buffer[i + 1])) i++
-            }
-
-            const next = buffer[i + 1]
-            // only split if there's content after (don't split at end of buffer)
-            if (next === ' ' || next === '\n') {
-                const chunk = buffer.slice(segStart, i + 1).trim()
-                if (chunk) chunks.push(chunk)
-                i += 2
-                segStart = i
-                continue
-            }
-        }
-
-        i++
-    }
-
-    return { chunks, remaining: buffer.slice(segStart) }
-}
-
-/*
- * STATES
- */
-
-let assistantAwake = false
-let isUserSpeaking = false
-
-let vadProc: import('./pyServers/pyServer').default | null = null
-let wakeWordProc: import('./pyServers/pyServer').default | null = null
-
-let speechEndTimeout: NodeJS.Timeout | null = null
-
-type ConversationMessage = { role: 'user' | 'assistant'; content: string }
-const conversationHistory: ConversationMessage[] = []
+const conversation = new Conversation()
 
 function createWindow(): void {
     const mainWindow = new BrowserWindow({
         width: 800,
         height: 600,
-
         fullscreen: false,
         frame: true,
-
         autoHideMenuBar: true,
         backgroundColor: '#000000',
-
         show: false,
-
         ...(process.platform === 'linux' ? { icon } : {}),
-
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
-            sandbox: false
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false
         }
     })
 
-    mainWindow.on('ready-to-show', () => {
-        mainWindow.show()
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+        callback(permission === 'media')
     })
 
+    mainWindow.on('ready-to-show', () => mainWindow.show())
+    mainWindow.on('closed', () => app.quit())
+    mainWindow.webContents.on('did-finish-load', () => {
+        flushServiceStatuses()
+        if (recoveryGapMs > 0) {
+            sendToRenderer('service:recovery', { gapMs: recoveryGapMs })
+        }
+    })
     mainWindow.webContents.setWindowOpenHandler((details) => {
         shell.openExternal(details.url)
-
-        return {
-            action: 'deny'
-        }
+        return { action: 'deny' }
     })
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -124,7 +73,13 @@ function sendToRenderer(channel: string, payload?: any) {
     BrowserWindow.getAllWindows()[0]?.webContents.send(channel, payload)
 }
 
+function sendToStt(channel: string) {
+    if (channel === 'stt:session-start') sidecar?.sessionStart()
+    if (channel === 'stt:session-end') sidecar?.sessionEnd()
+}
+
 app.whenReady().then(async () => {
+    startTokenizerServer()
     electronApp.setAppUserModelId('com.electron')
     initTTS()
 
@@ -132,223 +87,82 @@ app.whenReady().then(async () => {
         optimizer.watchWindowShortcuts(window)
     })
 
-    ipcMain.on('ping', () => logger.info('[MAIN.index] pong'))
+    configureAttentionEngine(() => (speechSession?.isActive() ?? false) || isTTSPlaying())
+    initNotifications(sendToRenderer)
+    startTaskQueue(sendToRenderer, (text) => queueSpeak(text))
+
+    const recovery = checkTemporalRecovery()
+    recoveryGapMs = recovery.gapMs
+    recordHeartbeatTimestamp()
+    startHeartbeatScheduler()
+
+    if (recovery.hadGap) {
+        ipcMain.once('app:startup-complete', () => {
+            const minutes = Math.round(recoveryGapMs / 60_000)
+            sendNotification('Reprise', `Jarvis était hors-ligne depuis ${minutes} min.`)
+        })
+    }
+
+    const { handleWake, handleSttEvent } = registerIpcHandlers({
+        conversation,
+        getSpeechSession: () => speechSession,
+        setSpeechSession: (s) => {
+            speechSession = s
+        },
+        emit: sendToRenderer,
+        emitToStt: sendToStt
+    })
+
+    onPiperStatus((status) => updateServiceStatus('piper', status))
+    ttsEvents.on('speaking-start', () => {
+        pauseHeartbeat()
+        try { pauseWakeWord() } catch (e) { logger.error('[MAIN] pauseWakeWord failed: ' + String(e)) }
+    })
+    ttsEvents.on('speaking-end', () => {
+        resumeHeartbeat()
+        try { resumeWakeWord() } catch (e) { logger.error('[MAIN] resumeWakeWord failed: ' + String(e)) }
+    })
+
+    sidecar = startChromeSidecar(handleSttEvent)
+    onSidecarStatus((status) => updateServiceStatus('chrome-stt', status))
+
+    startWakeWord(
+        () => handleWake(),
+        (status) => updateServiceStatus('wakeword', status)
+    )
+
+    ensureToolServers().catch((err) =>
+        logger.error('[MAIN] Failed to start tool servers: ' + String(err))
+    )
 
     createWindow()
 
-    /*
-     * VAD
-     */
-
-    logger.info('[MAIN.index] Starting VAD...')
-
-    const vadProc = startVAD((event) => {
-        /*
-         * SPEECH START
-         */
-
-        if (event.type === 'speech_start') {
-            isUserSpeaking = true
-
-            if (speechEndTimeout) {
-                clearTimeout(speechEndTimeout)
-
-                speechEndTimeout = null
-            }
-
-            logger.debug('[MAIN.index] speech_start detected')
-
-            /*
-             * IMPORTANT
-             * notify python
-             */
-
-            sendSpeechStart()
-
-            if (assistantAwake) {
-                sendToRenderer('assistant:speech_start')
-            }
-
-            return
-        }
-
-        /*
-         * SPEECH END
-         */
-
-        if (event.type === 'speech_end') {
-            logger.debug('[MAIN.index] speech_end detected')
-
-            if (speechEndTimeout) {
-                clearTimeout(speechEndTimeout)
-            }
-
-            speechEndTimeout = setTimeout(() => {
-                logger.debug('[MAIN.index] Speech REALLY ended')
-
-                isUserSpeaking = false
-
-                /*
-                 * IMPORTANT
-                 * notify python
-                 */
-
-                sendSpeechEnd()
-
-                if (assistantAwake) {
-                    sendToRenderer('assistant:speech_end')
-                }
-            }, 1200)
-
-            return
-        }
-    })
-
-    /*
-     * WHISPER
-     */
-
-    logger.info('[MAIN.index] Connecting Whisper...')
-
-    await connectWhisper()
-
-    logger.info('[MAIN.index] Whisper connected')
-
-    onPartial((text) => {
-        logger.debug('[MAIN.index] partial:' + text)
-
-        sendToRenderer('assistant:partial_transcript', {
-            text
-        })
-    })
-
-    onFinal(async (text) => {
-        logger.info('[MAIN.index] final:' + text)
-
-        sendToRenderer('assistant:final_transcript', { text })
-
-        conversationHistory.push({ role: 'user', content: text })
-
-        sendToRenderer('assistant:thinking_start')
-
-        try {
-            let sentenceBuffer = ''
-            let firstToken = true
-
-            const reply = await askOllamaStream([...conversationHistory], (token) => {
-                if (firstToken) {
-                    sendToRenderer('assistant:llm_stream_start')
-                    firstToken = false
-                }
-
-                sendToRenderer('assistant:llm_token', { token })
-
-                sentenceBuffer += token
-
-                const { chunks, remaining } = extractTTSChunks(sentenceBuffer)
-                for (const chunk of chunks) queueSpeak(chunk)
-                sentenceBuffer = remaining
-            })
-
-            // Flush any remaining text as the last TTS chunk
-            if (sentenceBuffer.trim()) {
-                queueSpeak(sentenceBuffer.trim())
-            }
-
-            conversationHistory.push({ role: 'assistant', content: reply })
-            sendToRenderer('assistant:llm_response', { text: reply })
-
-            // Wait for TTS to finish before resuming wake word
-            ttsEvents.once('speaking-end', () => {
-                sendToRenderer('assistant:speaking_end')
-                logger.info('[MAIN.index] TTS done — assistant sleeping')
-                assistantAwake = false
-                isUserSpeaking = false
-                resumeWakeWord()
-            })
-
-            sendToRenderer('assistant:speaking_start')
-        } catch (err) {
-            logger.error('[MAIN.index] Ollama error: ' + String(err))
-            stopSpeaking()
-            sendToRenderer('assistant:llm_error', { message: String(err) })
-            assistantAwake = false
-            isUserSpeaking = false
-            resumeWakeWord()
-        }
-    })
-
-    /*
-     * MICROPHONE
-     */
-
-    logger.info('[MAIN.index] Starting microphone...')
-
-    startMicrophone(
-        (samples) => {
-            // Must be awake
-            if (!assistantAwake) return
-            // Stop streaming after REAL speech end
-            if (!isUserSpeaking) {
-                return
-            }
-            sendAudio(samples)
-        },
-        (err) => {
-            sendToRenderer('assistant:microphone_error', { message: err.message })
-            logger.error(
-                '[MAIN.index] Erreur micro (callback):' +
-                    (err instanceof Error ? err.message : String(err))
-            )
-            // TODO: afficher une notification UI ou fallback
-        }
-    )
-
-    /*
-     * WAKE WORD
-     */
-
-    logger.info('[MAIN.index] Starting wake word...')
-
-    const wakeWordProc = startWakeWord(async () => {
-        if (assistantAwake) return
-
-        logger.info('[MAIN.index] \nWAKE DETECTED')
-
-        assistantAwake = true
-        injectWakeWord('Jarvis')
-
-        pauseWakeWord()
-
-        sendToRenderer('assistant:wake')
-
-        /*
-         * Inject Jarvis
-         */
-
-        sendToRenderer('assistant:partial_transcript', {
-            text: 'Jarvis'
-        })
-    })
-
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow()
-        }
+        if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
 })
 
-app.on('before-quit', () => {
-    logger.info('[MAIN.index] Shutting down...')
+app.on('before-quit', (event) => {
+    event.preventDefault()
+    logger.info('[MAIN] Shutting down...')
+    stopHeartbeatScheduler()
     stopSpeaking()
-    disconnectWhisper()
-    vadProc?.stop()
-    wakeWordProc?.stop()
-    logger.info('[MAIN.index] Cleanup done')
+    stopWakeWord()
+    sidecar?.stop()
+
+    const snapshot = conversation.getHistory()
+    if (snapshot.length > 0) {
+        pushTask({ type: 'extract-insights', payload: { messages: snapshot } })
+    }
+
+    drainAndStop().then(() => {
+        stopToolServers()
+        stopTokenizerServer()
+        logger.info('[MAIN] Cleanup done')
+        app.exit(0)
+    })
 })
 
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit()
-    }
+    if (process.platform !== 'darwin') app.quit()
 })

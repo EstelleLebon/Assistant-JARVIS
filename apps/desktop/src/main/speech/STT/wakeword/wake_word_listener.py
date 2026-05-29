@@ -30,7 +30,7 @@ from openwakeword.model import Model
 
 CHUNK = 1280       # 80ms à 16kHz — fenêtre recommandée par OpenWakeWord
 SAMPLE_RATE = 16000
-THRESHOLD = 0.6    # Score minimum pour déclencher la détection
+THRESHOLD = 0.65    # Score minimum pour déclencher la détection
 
 def main():
     parser = argparse.ArgumentParser()

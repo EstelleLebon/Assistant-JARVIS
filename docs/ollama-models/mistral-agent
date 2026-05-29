@@ -1,0 +1,6 @@
+FROM mistral-small3.2
+
+PARAMETER temperature 0.5
+PARAMETER top_p 0.85
+PARAMETER num_ctx 8192
+PARAMETER repeat_penalty 1.1

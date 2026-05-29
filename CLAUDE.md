@@ -46,41 +46,57 @@ Python environment: `.venv/` at the repo root — all Python subprocesses use `.
 ### Process boundary
 
 **Electron main process** (`src/main/`) handles all I/O and speech pipeline:
-- Spawns Python subprocesses for wake-word detection, VAD, and Whisper ASR
-- Runs the Ollama LLM client
+- Runs wake-word detection via ONNX model (`onnxruntime-node`, no Python)
+- Spawns and manages a Chrome STT sidecar for transcription (Web Speech API)
+- Runs the Ollama LLM client with context-window trimming (token counting via Python microservice on port 8123)
+- Manages tool servers (Node.js HTTP servers on ports 3001 & 7824)
 - Bridges events to the renderer via IPC
 
 **Renderer process** (`src/renderer/`) is a pure React/Three.js UI:
 - Receives IPC events and drives the orb + conversation view
-- Captures microphone audio via AudioWorklet and sends chunks to main via `window.jarvis.sendAudioChunk()`
 - Maintains conversation state in Zustand
 
 ### Speech pipeline (main process)
 
 ```
-Microphone (AudioWorklet, 16kHz Float32)
-    → IPC audio:chunk
-        → WakeWordProcess (ONNX via onnxruntime-node)
-            → VAD (Python: silero-vad via websocket)
-                → WhisperServer (Python: faster-whisper, websocket)
-                    → ollamaClient (llama3.1:8b, localhost:11434)
-                        → IPC assistant:llm_response → renderer
+WakeWordProcess (ONNX via onnxruntime-node)
+    → handleWake() → SpeechSession created
+        → Chrome STT Sidecar (Web Speech API, WebSocket port 7823)
+            → handleSttEvent(partial|final)
+                → SpeechSession.onFinal() → handleUserMessage()
+                    → responseOrchestrator → ollamaClient (streaming)
+                        → tool calls dispatched via toolsClient (HTTP)
+                        → TTS Piper (piper binary + aplay, sentence-chunked)
+                            → IPC assistant:speaking_start/end → renderer
 ```
 
-Each Python component extends `PyServer` (`src/main/pyServers/pyServer.ts`) — a generic subprocess lifecycle manager (start/stop/send with stdout/stderr callbacks).
+Chrome STT Sidecar (`src/main/sttSidecar.ts`): headless Chrome process communicates via WebSocket. Main → Chrome: `session-start` / `session-end`. Chrome → Main: `partial`, `final`, `log-*`.
+
+Tokenizer microservice (`src/main/llm/tokenizer_server.py`): FastAPI server on port 8123, started at app launch. Counts tokens via HuggingFace transformers for Llama 3, Mistral, Qwen. Used by `ollamaClient` to trim conversation history before each LLM call. Falls back to char-count estimation on timeout.
 
 ### IPC channels
 
 Main → Renderer:
 - `assistant:wake` — wake word detected
-- `assistant:speech_start` / `assistant:speech_end` — VAD boundaries
-- `assistant:partial_transcript` / `assistant:final_transcript` — Whisper output
+- `assistant:speech_start` — speech session opened
+- `assistant:speech_expired` — speech session timed out without a response (→ idle)
+- `assistant:partial_transcript` / `assistant:final_transcript` — Chrome STT output
 - `assistant:thinking_start` — LLM call started
-- `assistant:llm_response` — LLM reply ready
+- `assistant:llm_stream_start` / `assistant:llm_token` / `assistant:llm_response` — LLM streaming
 - `assistant:llm_error` — LLM call failed
+- `assistant:speaking_start` / `assistant:speaking_end` — TTS playback boundaries
+- `assistant:tool_call` / `assistant:tool_result` — tool execution events
+- `conversation:cleared` — conversation reset
+- `service:status` — service lifecycle updates (`{ service, status }`)
 
 Renderer → Main:
-- `audio:chunk` — Float32Array audio chunk from AudioWorklet
+- `app:startup-complete` — renderer ready, enables wake word
+- `mic:set-muted` — mute/unmute microphone
+- `tts:set-volume` — adjust TTS volume
+- `tts:replay` — replay last response
+- `assistant:user_text` — text input from UI
+- `conversation:clear` — clear conversation history
+- `stt:session-start` / `stt:session-end` — forwarded to Chrome sidecar
 
 ### Renderer state architecture (two separate systems)
 
@@ -93,6 +109,32 @@ Renderer → Main:
 ### Orb visualization
 
 The orb (`src/renderer/src/orb/`) is a Three.js particle system with 5 states: `idle`, `listening`, `thinking`, `speaking`, `error`. State machine lives in `createorb.ts` with per-frame interpolated animation parameters (radius, speed, brightness, vortex, breathing). `OrbController` subscribes to `eventBus` and calls `orb.setState()`.
+
+---
+
+## Implementation specs
+
+The `.docs/` directory contains the full design specs for each subsystem. **Always read the relevant spec before implementing or extending a system.** The technical docs (jarvis_16+) are the authoritative reference:
+
+| Doc | System | Key files |
+|---|---|---|
+| `.docs/jarvis_16_cognitive_core_orchestration_ia.md` | Cognitive Core — context manager, prompt orchestrator, memory integration, tool reasoning, response planner | `src/main/speech/conversation/` |
+| `.docs/jarvis_17_memory_system_temporal_intelligence.md` | Memory System — working/episodic/semantic memory, temporal engine, retrieval, consolidation | `src/main/memory/` |
+| `.docs/jarvis_18_tool_runtime_function_calling.md` | Tool Runtime — registry, validation, execution pipeline, permissions, tool chaining | `src/main/tools/` |
+| `.docs/jarvis_19_heartbeat_engine_proactivite.md` | Heartbeat Engine — scheduler cycles, attention engine, reminder system, background tasks, recovery | `src/main/heartbeat/`, `src/main/taskQueue.ts` |
+| `.docs/jarvis_20_vision_desktop_context_awareness.md` | Desktop Context Awareness — OS integration, context signals | — |
+| `.docs/jarvis_21_ui_ux_desktop_application_orb_interface.md` | UI/UX & Orb Interface — panels, notification system, visual states | `src/renderer/src/orb/`, `src/renderer/src/components/` |
+| `.docs/jarvis_22_local_ai_stack_models_performance_architecture.md` | Local AI Stack — model selection, performance, embeddings | `src/main/llm/` |
+| `.docs/jarvis_23_security_permissions_trust_architecture.md` | Security & Permissions — trust model, tool access control | — |
+| `.docs/jarvis_25_development_roadmap_implementation_phases.md` | Roadmap — implementation phases, priorities | — |
+| `.docs/jarvis_26_final_global_architecture_summary_system_blueprint.md` | Global blueprint — full system map | — |
+
+The earlier docs (jarvis_01–15) are the philosophical/design layer behind the same subjects. The jarvis_16+ docs are the technical specs to implement from.
+
+**Rules:**
+- Before implementing or extending any of these systems, read the relevant spec.
+- Follow the spec. Do not deviate without flagging it explicitly.
+- If a request contradicts the spec, or the spec is ambiguous/incomplete, say so before implementing — don't silently diverge.
 
 ---
 

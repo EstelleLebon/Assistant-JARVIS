@@ -1,6 +1,11 @@
 {
-  "editor.defaultFormatter": null,
+  "editor.defaultFormatter": "dbaeumer.vscode-eslint",
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
-  }
+    "source.fixAll.eslint": "always"
+  },
+  "eslint.workingDirectories": [
+    { "directory": "apps/desktop", "changeProcessCWD": true },
+    { "directory": "apps/tools-server", "changeProcessCWD": true },
+    { "directory": "apps/system-tools-server", "changeProcessCWD": true }
+  ]
 }
