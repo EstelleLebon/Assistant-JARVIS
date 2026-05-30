@@ -78,17 +78,54 @@ export async function handleUserMessage(
             let sentenceBuffer = ''
             let firstToken = true
             let fullResponse = ''
+            let pendingPhraseQueued = false
+
+            const tryQueuePendingPhrase = (text: string) => {
+                if (pendingPhraseQueued) return
+                const trimmed = text.trim()
+                if (!trimmed.includes('"tool"')) return
+
+                // Extract tool name early from partial JSON (before closing '}')
+                const toolNameMatch = trimmed.match(/"tool"\s*:\s*"([^"]+)"/)
+                if (!toolNameMatch) return
+
+                const toolName = toolNameMatch[1]
+                const toolDef = getToolByName(toolName)
+                if (!toolDef?.pendingPhrase) return
+
+                // For args we need complete JSON — use partial args or empty fallback
+                let args: Record<string, unknown> = {}
+                if (trimmed.includes('}')) {
+                    const { toolCall } = extractToolCall(trimmed)
+                    if (toolCall) args = toolCall.args ?? {}
+                }
+
+                pendingPhraseQueued = true
+                let phrase = toolDef.pendingPhrase(args)
+                if (phrase.includes('undefined')) {
+                    // Args incomplete — strip from undefined onward and close with ellipsis
+                    phrase = phrase.replace(/\s*["«]?undefined["»]?.*$/, '...').trim()
+                }
+                speakTracked(phrase)
+                logger.info(`[responseOrchestrator] Pending phrase queued early mid-stream for "${toolName}"`)
+            }
 
             const reply = await askOllamaStream(
                 [...conversation.getHistory()],
                 (token) => {
                     fullResponse += token
 
-                    // Pure tool call (response starts with '{') — skip TTS entirely
-                    if (fullResponse.trimStart().startsWith('{')) return
+                    // Pure tool call (response starts with '{') — skip text TTS, but try pending phrase
+                    if (fullResponse.trimStart().startsWith('{')) {
+                        tryQueuePendingPhrase(fullResponse)
+                        return
+                    }
 
                     // Mixed response: stop streaming to TTS once a tool call line appears
-                    if (fullResponse.includes('"tool"') && fullResponse.includes('\n{')) return
+                    if (fullResponse.includes('"tool"') && fullResponse.includes('\n{')) {
+                        tryQueuePendingPhrase(fullResponse)
+                        return
+                    }
 
                     if (firstToken) {
                         emit('assistant:llm_stream_start')
@@ -114,10 +151,7 @@ export async function handleUserMessage(
                 )
 
                 // Speak any text that preceded the tool call JSON
-                if (spokenText) {
-                    emit('assistant:speaking_start')
-                    speakTracked(spokenText)
-                }
+                if (spokenText) speakTracked(spokenText)
 
                 emit('assistant:tool_call', {
                     id: toolId,
@@ -125,11 +159,10 @@ export async function handleUserMessage(
                     args: toolCall.args
                 })
 
-                // Speak pending phrase while the tool executes
+                // Speak pending phrase only if not already queued mid-stream
                 const toolDef = getToolByName(toolCall.tool)
-                if (toolDef?.pendingPhrase) {
+                if (toolDef?.pendingPhrase && !pendingPhraseQueued) {
                     const phrase = toolDef.pendingPhrase(toolCall.args ?? {})
-                    emit('assistant:speaking_start')
                     speakTracked(phrase)
                 }
 
@@ -137,10 +170,10 @@ export async function handleUserMessage(
                 conversation.addAssistantMessage(reply)
 
                 // Execute the tool (TTS plays concurrently)
-                const result = await executeTool(toolCall)
+                const { result, panel } = await executeTool(toolCall)
                 logger.info(`[responseOrchestrator] Tool result: ${result.slice(0, 200)}`)
 
-                emit('assistant:tool_result', { id: toolId, tool: toolCall.tool, result })
+                emit('assistant:tool_result', { id: toolId, tool: toolCall.tool, result, panel })
 
                 conversation.addUserMessage(`[Tool result for ${toolCall.tool}]\n${result}`)
 
@@ -157,9 +190,7 @@ export async function handleUserMessage(
             emit('assistant:llm_response', { text: reply })
 
             if (anySpeakQueued) {
-                emit('assistant:speaking_start')
                 const finish = () => {
-                    emit('assistant:speaking_end')
                     logger.info('[responseOrchestrator] TTS done — assistant sleeping')
                     onDone()
                 }

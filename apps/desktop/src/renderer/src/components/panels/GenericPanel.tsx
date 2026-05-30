@@ -17,10 +17,52 @@ interface GenericPanelProps {
     visible: boolean
     onClose: () => void
     onShow: () => void
+    onDestroy?: () => void
     anchorIndex: number // index du point d'ancrage sur l'orbe
     style?: React.CSSProperties
     connectionOptions?: PanelConnectionOptions
     hideButtonText?: string
+}
+
+function PanelButton({
+    onClick,
+    right,
+    title,
+    children,
+    ...rest
+}: {
+    onClick: () => void
+    right: number
+    title: string
+    children: React.ReactNode
+    [key: string]: any
+}) {
+    return (
+        <button
+            onClick={onClick}
+            title={title}
+            {...rest}
+            style={{
+                position: 'absolute',
+                top: 8,
+                right,
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                background: 'rgba(76,168,232,0.10)',
+                border: 'none',
+                color: '#4ca8e8',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1002,
+                boxShadow: '0 1px 4px 0 rgba(76,168,232,0.08)'
+            }}
+        >
+            {children}
+        </button>
+    )
 }
 
 // Utilitaire pour persister la position par panelId
@@ -46,6 +88,7 @@ const GenericPanel: React.FC<GenericPanelProps> = ({
     visible,
     onClose,
     onShow,
+    onDestroy,
     anchorIndex,
     style = {},
     connectionOptions = { numLines: 8 },
@@ -309,34 +352,26 @@ const GenericPanel: React.FC<GenericPanelProps> = ({
                     borderRadius: '16px 16px 0 0'
                 }}
             />
-            {/* Bouton croix bleu en haut à droite */}
-            <button
+            {/* Bouton réduire — toujours présent */}
+            <PanelButton
                 onClick={onClose}
-                style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
-                    background: 'rgba(76,168,232,0.10)',
-                    border: 'none',
-                    color: '#4ca8e8',
-                    fontSize: 18,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 1002,
-                    boxShadow: '0 1px 4px 0 rgba(76,168,232,0.08)'
-                }}
-                title="Fermer"
-                tabIndex={0}
-                aria-label="Fermer"
+                right={onDestroy ? 44 : 8}
+                title="Réduire"
+                aria-label="Réduire"
             >
-                <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>×</span>
-            </button>
+                <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, marginBottom: 4 }}>_</span>
+            </PanelButton>
+            {/* Bouton détruire — optionnel */}
+            {onDestroy && (
+                <PanelButton
+                    onClick={onDestroy}
+                    right={8}
+                    title="Fermer définitivement"
+                    aria-label="Fermer définitivement"
+                >
+                    <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>×</span>
+                </PanelButton>
+            )}
             <>{children}</>
         </div>
     )

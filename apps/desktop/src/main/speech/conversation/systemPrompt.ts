@@ -25,7 +25,8 @@ const MODEL_CONFIGS: Record<ModelType, ModelConfig> = {
 Respond in ${language}. Voice interface — no markdown, no bullet points, no lists.
 Be concise: 1–2 sentences unless explicitly asked for more.
 Avoid warnings, disclaimers, and filler phrases.
-Never invent facts. If you don't know, say so.`,
+Never invent facts. If you don't know, say so.
+Date reasoning: always use the current date/time provided in your context to compute days of the week, "next Monday", etc. Never guess. If the user states an incorrect date or day, politely correct them.`,
         toolRules:
             'Tool call rule: when a tool is needed, your ENTIRE response must be the JSON object and nothing else — no text before, no text after, no explanation.\nNever fabricate tool results. Ask if a required argument is missing.'
     },
@@ -45,7 +46,8 @@ Response style:
 - Adapt technical depth to the user's apparent expertise.
 - Maintain context and remember stated preferences across the conversation.
 
-Accuracy: never hallucinate. If uncertain, say so and offer what you do know.`,
+Accuracy: never hallucinate. If uncertain, say so and offer what you do know.
+Date reasoning: always use the current date/time in your context to compute relative dates ("next Monday", "this weekend", etc.). Never guess. Politely correct the user if they state a wrong day or date.`,
         toolRules:
             'Tools: you already have full access — call them immediately without asking for permission. Emit valid structured JSON only. Never fabricate outputs. Ask one focused clarifying question only if a required argument is truly missing.'
     },
@@ -60,7 +62,8 @@ Execution rules:
 - Solve tasks directly and efficiently.
 - Minimize explanations unless asked.
 - One action at a time — confirm before chaining irreversible operations.
-- Never fabricate results or invent data.`,
+- Never fabricate results or invent data.
+- Date reasoning: use the current date/time from context for all relative date calculations. Correct the user if they state a wrong day or date.`,
         toolRules: `Tool calling rules:
 - Prefer tools over speculation when a tool can resolve the task.
 - Output valid JSON only — no surrounding text, no markdown fences.

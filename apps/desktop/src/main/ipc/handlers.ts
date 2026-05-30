@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import {
     stopSpeaking,
     replaySpeak,
@@ -18,6 +18,7 @@ interface IpcHandlerDeps {
     setSpeechSession: (s: SpeechSession | null) => void
     emit: (channel: string, payload?: any) => void
     emitToStt: (channel: string) => void
+    onConversationCleared?: () => void
 }
 
 interface IpcHandlerResult {
@@ -26,7 +27,7 @@ interface IpcHandlerResult {
 }
 
 export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
-    const { conversation, getSpeechSession, setSpeechSession, emit, emitToStt } = deps
+    const { conversation, getSpeechSession, setSpeechSession, emit, emitToStt, onConversationCleared } = deps
 
     let micMuted = false
     let startupComplete = false
@@ -139,7 +140,11 @@ export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
         emitToStt('stt:session-end')
         emit('conversation:cleared')
         pushTask({ type: 'extract-insights', payload: { messages: snapshot } })
+        onConversationCleared?.()
     })
+
+    ipcMain.handle('shell:open-path', (_e, path: string) => shell.openPath(path))
+    ipcMain.handle('shell:open-url', (_e, url: string) => shell.openExternal(url))
 
     return { handleWake, handleSttEvent }
 }

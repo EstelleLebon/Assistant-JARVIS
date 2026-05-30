@@ -69,7 +69,19 @@ export async function registerCalendar(fastify: FastifyInstance) {
                 orderBy: 'startTime',
             })
             const events = (res.data.items ?? []).map((e) => mapEvent(e, calendar_id))
-            return reply.send(ok({ events }))
+            const panelEvents = events.map((e) => ({
+                title: e.summary,
+                start: e.start,
+                end: e.end,
+                location: e.location || undefined
+            }))
+            const result = events.length === 0
+                ? 'Aucun événement sur cette période.'
+                : events.map((e) => `- ${e.summary} (${e.start})`).join('\n')
+            return reply.send({
+                result,
+                panel: { type: 'calendar', data: { events: panelEvents } }
+            })
         } catch (e: any) {
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }

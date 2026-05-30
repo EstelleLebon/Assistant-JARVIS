@@ -36,23 +36,37 @@ export async function registerRoutines(fastify: FastifyInstance) {
     fastify.get('/tools/routines/status', async (req, reply) => {
         const { date = todayDate() } = req.query as any
         const items = db.prepare(`
-            SELECT ri.label, rc.checked_at
+            SELECT ri.label, ri.category, rc.checked_at
             FROM routine_items ri
             LEFT JOIN routine_checks rc ON rc.item_id = ri.id AND rc.date = ?
             WHERE ri.active = 1
+            ORDER BY ri.category, ri.created_at
         `).all(date) as any[]
 
         const total = items.length
         const done = items.filter((i) => i.checked_at).length
         const pending = items.filter((i) => !i.checked_at).map((i) => i.label)
 
-        return reply.send(ok({
-            date,
-            total,
-            done,
-            pending,
-            completion_rate: total > 0 ? done / total : 0,
-        }))
+        // Group by category for the panel
+        const categoryMap = new Map<string, { done: number; total: number }>()
+        for (const item of items) {
+            const cat = item.category ?? 'Général'
+            const entry = categoryMap.get(cat) ?? { done: 0, total: 0 }
+            entry.total++
+            if (item.checked_at) entry.done++
+            categoryMap.set(cat, entry)
+        }
+        const routines = Array.from(categoryMap.entries()).map(([name, v]) => ({ name, ...v }))
+
+        const result = `Routines du ${date} : ${done}/${total} complétées.${pending.length > 0 ? ` En attente : ${pending.join(', ')}.` : ' Tout est fait !'}`
+
+        return reply.send({
+            result,
+            panel: {
+                type: 'routines',
+                data: { routines }
+            }
+        })
     })
 
     // Check a routine item

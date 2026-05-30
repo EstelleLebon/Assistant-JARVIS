@@ -20,10 +20,13 @@ import { startHeartbeatScheduler, stopHeartbeatScheduler, pauseHeartbeat, resume
 import { checkTemporalRecovery, recordHeartbeatTimestamp } from './heartbeat/temporalRecovery'
 import { configureAttentionEngine } from './heartbeat/attentionEngine'
 import { initNotifications, sendNotification } from './notifications'
+import { startEventWatchers, stopEventWatchers, recordInteraction } from './heartbeat/eventWatchers'
 
 let speechSession: SpeechSession | null = null
 let sidecar: ChromeSidecar | null = null
 let recoveryGapMs = 0
+let lastExtractedMessageCount = 0
+const MID_SESSION_EXTRACTION_THRESHOLD = 10
 
 const conversation = new Conversation()
 
@@ -94,7 +97,19 @@ app.whenReady().then(async () => {
     const recovery = checkTemporalRecovery()
     recoveryGapMs = recovery.gapMs
     recordHeartbeatTimestamp()
-    startHeartbeatScheduler()
+    startEventWatchers()
+    startHeartbeatScheduler({
+        onSlowTick: () => {
+            const messages = conversation.getHistory()
+            const newCount = messages.length - lastExtractedMessageCount
+            if (newCount >= MID_SESSION_EXTRACTION_THRESHOLD) {
+                const newMessages = messages.slice(lastExtractedMessageCount)
+                pushTask({ type: 'extract-insights-partial', payload: { messages: newMessages } })
+                lastExtractedMessageCount = messages.length
+                logger.info(`[MAIN] Mid-session extraction triggered (${newCount} new messages)`)
+            }
+        }
+    })
 
     if (recovery.hadGap) {
         ipcMain.once('app:startup-complete', () => {
@@ -110,24 +125,29 @@ app.whenReady().then(async () => {
             speechSession = s
         },
         emit: sendToRenderer,
-        emitToStt: sendToStt
+        emitToStt: sendToStt,
+        onConversationCleared: () => {
+            lastExtractedMessageCount = 0
+        }
     })
 
     onPiperStatus((status) => updateServiceStatus('piper', status))
     ttsEvents.on('speaking-start', () => {
         pauseHeartbeat()
         try { pauseWakeWord() } catch (e) { logger.error('[MAIN] pauseWakeWord failed: ' + String(e)) }
+        sendToRenderer('assistant:speaking_start')
     })
     ttsEvents.on('speaking-end', () => {
         resumeHeartbeat()
         try { resumeWakeWord() } catch (e) { logger.error('[MAIN] resumeWakeWord failed: ' + String(e)) }
+        sendToRenderer('assistant:speaking_end')
     })
 
     sidecar = startChromeSidecar(handleSttEvent)
     onSidecarStatus((status) => updateServiceStatus('chrome-stt', status))
 
     startWakeWord(
-        () => handleWake(),
+        () => { handleWake(); recordInteraction() },
         (status) => updateServiceStatus('wakeword', status)
     )
 
@@ -146,6 +166,7 @@ app.on('before-quit', (event) => {
     event.preventDefault()
     logger.info('[MAIN] Shutting down...')
     stopHeartbeatScheduler()
+    stopEventWatchers()
     stopSpeaking()
     stopWakeWord()
     sidecar?.stop()

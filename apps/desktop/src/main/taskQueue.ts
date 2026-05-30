@@ -11,6 +11,7 @@ import { sendNotification } from './notifications'
 
 export type Task =
     | { type: 'extract-insights'; payload: { messages: ConversationMessage[] } }
+    | { type: 'extract-insights-partial'; payload: { messages: ConversationMessage[] } }
     | { type: 'heartbeat'; payload?: undefined }
     | { type: 'check-reminders'; payload?: undefined }
     | { type: 'add-reminder'; payload: { text: string; dueAt: number } }
@@ -98,7 +99,7 @@ async function processNext(): Promise<void> {
     logger.debug(`[taskQueue] Processing task: ${task.type}`)
 
     try {
-        if (task.type === 'extract-insights') {
+        if (task.type === 'extract-insights' || task.type === 'extract-insights-partial') {
             await handleExtractInsights(task.payload.messages, emitFn)
         } else if (task.type === 'heartbeat') {
             await handleHeartbeat(emitFn)

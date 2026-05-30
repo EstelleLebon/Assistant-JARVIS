@@ -21,6 +21,8 @@ export interface ToolDef {
     default: boolean
     /** Spoken aloud while the tool executes, with args interpolated */
     pendingPhrase?: (args: Record<string, unknown>) => string
+    /** Requires explicit user confirmation before execution */
+    requiresConfirmation?: boolean
 }
 
 export const TOOLS_CATALOGUE: ToolDef[] = [
@@ -182,6 +184,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/system/lock',
         default: false,
+        requiresConfirmation: true,
         pendingPhrase: () => `Je verrouille l'écran...`
     },
     {
@@ -192,6 +195,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/system/sleep',
         default: false,
+        requiresConfirmation: true,
         pendingPhrase: () => `Je mets l'ordinateur en veille...`
     },
     {
@@ -215,6 +219,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/system/shutdown',
         default: false,
+        requiresConfirmation: true,
         pendingPhrase: () => `J'éteins l'ordinateur...`
     },
     {

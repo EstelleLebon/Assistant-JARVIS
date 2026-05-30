@@ -6,6 +6,8 @@ import ConversationPanel from './components/panels/ConversationView/Conversation
 import NotificationPanel from './components/panels/NotificationPanel'
 import SettingsPanel from './components/panels/SettingsPanel'
 import StatusPanel from './components/panels/StatusPanel/StatusPanel'
+import ToolPanelContainer from './components/panels/ToolPanels/ToolPanelContainer'
+import useToolPanelStore from './store/toolPanelStore'
 import { eventBus } from './runtime/event-bus'
 import { runtimeState } from './runtime/runtime-state'
 import type { ServiceName, ServiceStatus } from './runtime/runtime-state'
@@ -15,6 +17,7 @@ function App() {
     const [showStatus, setShowStatus] = useState(true)
     const [startupComplete, setStartupComplete] = useState(false)
     const { addNotification, notifications } = useNotificationStore()
+    const { addToolPanel } = useToolPanelStore()
     const {
         setPartial,
         appendSessionFinal,
@@ -33,7 +36,8 @@ function App() {
             setStartupComplete(true)
             window.jarvis.notifyStartupComplete()
         })
-        window.jarvis.onNotification(addNotification)
+        const removeNotification = window.jarvis.onNotification(addNotification)
+        return () => { removeNotification?.() }
     }, [])
 
     useEffect(() => {
@@ -89,7 +93,18 @@ function App() {
         )
         const removeToolResult = window.electron.ipcRenderer.on(
             'assistant:tool_result',
-            (_, { id, result }: { id: number; result: string }) => updateToolResult(id, result)
+            (
+                _,
+                {
+                    id,
+                    tool,
+                    result,
+                    panel
+                }: { id: number; tool: string; result: string; panel?: { type: string; data: unknown } }
+            ) => {
+                updateToolResult(id, result)
+                if (panel) addToolPanel(id, tool, panel.type, panel.data)
+            }
         )
         const removeSpeechExpired = window.electron.ipcRenderer.on('assistant:speech_expired', () =>
             eventBus.emit('speech-expired', undefined)
@@ -109,7 +124,7 @@ function App() {
             removeToolCall()
             removeToolResult()
         }
-    }, [clearMessages, commitSession, addToolCall, updateToolResult])
+    }, [clearMessages, commitSession, addToolCall, updateToolResult, addToolPanel])
 
     // LLM events only (transcription handled by webkitSpeechRecognition and/or IPC from main)
     useEffect(() => {
@@ -167,6 +182,7 @@ function App() {
                         onShow={() => setShowStatus(true)}
                     />
                     {notifications.length > 0 && <NotificationPanel />}
+                    <ToolPanelContainer />
                 </>
             )}
         </div>

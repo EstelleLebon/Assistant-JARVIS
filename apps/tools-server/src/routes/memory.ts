@@ -6,7 +6,7 @@ import { ok, err } from '../types/api.js'
 // Sanitize user input into a valid FTS5 MATCH query (prefix search per token)
 function toFtsQuery(q: string): string {
     return q
-        .replace(/['"*^()[\]{}:]/g, ' ')
+        .replace(/[^a-zA-Z0-9À-ɏ\s]/g, ' ')
         .trim()
         .split(/\s+/)
         .filter((w) => w.length > 1)
@@ -165,7 +165,7 @@ export async function registerMemory(fastify: FastifyInstance) {
         const ftsQ = toFtsQuery(q)
         const lim = parseInt(limit)
 
-        if (!ftsQ) return reply.send(ok({ facts: [], episodes: [] }))
+        if (!ftsQ) return reply.send({ result: 'Requête trop courte pour une recherche.', panel: { type: 'memory_results', data: { query: q, results: [] } } })
 
         const facts = db.prepare(`
             SELECT f.id, f.content, f.category, f.confidence, f.updated_at
@@ -185,7 +185,17 @@ export async function registerMemory(fastify: FastifyInstance) {
             LIMIT ?
         `).all(ftsQ, lim) as any[]
 
-        return reply.send(ok({ facts, episodes }))
+        const results = [
+            ...facts.map((f: any) => ({ type: f.category ?? 'declarative', content: f.content, created_at: f.updated_at })),
+            ...episodes.map((e: any) => ({ type: 'episodic', content: e.content, created_at: e.date }))
+        ]
+        const result = results.length === 0
+            ? `Aucun souvenir trouvé pour "${q}".`
+            : `${results.length} résultat${results.length !== 1 ? 's' : ''} trouvé${results.length !== 1 ? 's' : ''} pour "${q}".`
+        return reply.send({
+            result,
+            panel: { type: 'memory_results', data: { query: q, results } }
+        })
     })
 
     // --- Context snapshot for system prompt injection ---

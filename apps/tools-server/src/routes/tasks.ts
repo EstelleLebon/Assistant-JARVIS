@@ -49,7 +49,20 @@ export async function registerTasks(fastify: FastifyInstance) {
             const items = (res.data.items ?? [])
                 .filter((t) => !status || t.status === status)
                 .map(mapTask)
-            return reply.send(ok({ tasks: items }))
+            const panelTasks = items.map((t) => ({
+                title: t.title,
+                due: t.due || undefined,
+                notes: t.notes || undefined,
+                completed: t.status === 'completed'
+            }))
+            const pending = panelTasks.filter((t) => !t.completed)
+            const result = items.length === 0
+                ? 'Aucune tâche trouvée.'
+                : `${pending.length} tâche${pending.length !== 1 ? 's' : ''} en attente sur ${items.length} au total.`
+            return reply.send({
+                result,
+                panel: { type: 'tasks', data: { tasks: panelTasks } }
+            })
         } catch (e: any) {
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }

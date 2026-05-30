@@ -12,6 +12,16 @@ export interface ToolCallRequest {
     args?: Record<string, unknown>
 }
 
+export interface ToolPanelPayload {
+    type: string
+    data: unknown
+}
+
+export interface ToolCallResult {
+    result: string
+    panel?: ToolPanelPayload
+}
+
 function buildUrl(tool: ToolDef, args: Record<string, unknown>): string {
     const base = SERVER_URLS[tool.server]
     const path = tool.path
@@ -28,19 +38,19 @@ function buildUrl(tool: ToolDef, args: Record<string, unknown>): string {
     return `${base}${path}`
 }
 
-export async function executeTool(request: ToolCallRequest): Promise<string> {
+export async function executeTool(request: ToolCallRequest): Promise<ToolCallResult> {
     const { tool: toolName, args = {} } = request
 
     // Local tool: add_reminder (handled in-process, no HTTP call)
     if (toolName === 'add_reminder') {
         const { text, delay_minutes, due_at } = args
-        if (!text) return 'Error: text is required'
+        if (!text) return { result: 'Error: text is required' }
         const dueAt = due_at
             ? new Date(due_at as string).getTime()
             : Date.now() + Number(delay_minutes ?? 5) * 60_000
         pushTask({ type: 'add-reminder', payload: { text: text as string, dueAt } })
         const inMin = Math.round((dueAt - Date.now()) / 60_000)
-        return `Rappel programmé dans ${inMin} minute${inMin !== 1 ? 's' : ''} : "${text}"`
+        return { result: `Rappel programmé dans ${inMin} minute${inMin !== 1 ? 's' : ''} : "${text}"` }
     }
 
     // Meta-tool: list all available tools
@@ -52,12 +62,18 @@ export async function executeTool(request: ToolCallRequest): Promise<string> {
                 .join(', ')
             return `- ${t.name}(${argStr}): ${t.description}`
         })
-        return lines.join('\n')
+        return { result: lines.join('\n') }
     }
 
     const tool = getToolByName(toolName)
     if (!tool) {
-        return `Error: unknown tool "${toolName}". Use list_tools to see available tools.`
+        return { result: `Error: unknown tool "${toolName}". Use list_tools to see available tools.` }
+    }
+
+    // Safety guard: destructive tools require explicit confirmation in args
+    if (tool.requiresConfirmation && !args.confirmed) {
+        logger.warn(`[toolsClient] Blocked "${toolName}" — confirmation required`)
+        return { result: `Action "${toolName}" requires explicit user confirmation. Ask the user to confirm before calling this tool again with confirmed: true.` }
     }
 
     const url = buildUrl(tool, args)
@@ -78,20 +94,23 @@ export async function executeTool(request: ToolCallRequest): Promise<string> {
         const text = await res.text()
 
         if (!res.ok) {
-            return `Error ${res.status}: ${text}`
+            return { result: `Error ${res.status}: ${text}` }
         }
 
-        // Pretty-print JSON if possible
+        // Parse JSON — detect rich panel response { result, panel } or legacy { data }
         try {
             const json = JSON.parse(text)
+            if (json.panel && typeof json.result === 'string') {
+                return { result: json.result, panel: json.panel as ToolPanelPayload }
+            }
             const data = json.data ?? json
-            return JSON.stringify(data, null, 2)
+            return { result: JSON.stringify(data, null, 2) }
         } catch {
-            return text
+            return { result: text }
         }
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error(`[toolsClient] Tool "${toolName}" failed: ${msg}`)
-        return `Error calling ${toolName}: ${msg}`
+        return { result: `Error calling ${toolName}: ${msg}` }
     }
 }

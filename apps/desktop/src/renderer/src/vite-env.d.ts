@@ -8,6 +8,8 @@ interface Window {
         sendUserText: (text: string) => void
         setMicMuted: (muted: boolean) => void
         notifyStartupComplete: () => void
+        openPath: (path: string) => Promise<string>
+        openUrl: (url: string) => Promise<void>
         onNotification: (
             callback: (n: {
                 id: string
@@ -15,6 +17,6 @@ interface Window {
                 message: string
                 timestamp: number
             }) => void
-        ) => void
+        ) => () => void
     }
 }

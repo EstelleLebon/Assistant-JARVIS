@@ -11,9 +11,15 @@ contextBridge.exposeInMainWorld('jarvis', {
     sendUserText: (text) => ipcRenderer.send('assistant:user_text', text),
     setMicMuted: (muted: boolean) => ipcRenderer.send('mic:set-muted', { muted }),
     notifyStartupComplete: () => ipcRenderer.send('app:startup-complete'),
+    openPath: (path: string) => ipcRenderer.invoke('shell:open-path', path),
+    openUrl: (url: string) => ipcRenderer.invoke('shell:open-url', url),
     onNotification: (
         callback: (n: { id: string; title: string; message: string; timestamp: number }) => void
-    ) => ipcRenderer.on('assistant:notification', (_, n) => callback(n))
+    ) => {
+        const handler = (_: Electron.IpcRendererEvent, n: { id: string; title: string; message: string; timestamp: number }) => callback(n)
+        ipcRenderer.on('assistant:notification', handler)
+        return () => ipcRenderer.removeListener('assistant:notification', handler)
+    }
 })
 
 // Custom APIs for renderer
