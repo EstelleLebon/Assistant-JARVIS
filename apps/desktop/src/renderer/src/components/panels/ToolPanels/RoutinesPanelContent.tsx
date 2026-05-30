@@ -15,9 +15,22 @@ export default function RoutinesPanelContent({ data }: { data: unknown }) {
     const globalPct = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0
 
     return (
-        <div style={{ padding: '14px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '14px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             <div style={{ marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '5px'
+                    }}
+                >
                     <span style={{ fontSize: '12px', color: '#aaa' }}>Progression globale</span>
                     <span style={{ fontSize: '12px', fontWeight: 600 }}>{globalPct}%</span>
                 </div>
@@ -30,9 +43,21 @@ export default function RoutinesPanelContent({ data }: { data: unknown }) {
                     const complete = r.done >= r.total
                     return (
                         <div key={i}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                                <span style={{ fontSize: '12px', color: complete ? '#4caf50' : '#ccc' }}>
-                                    {complete ? '✓ ' : ''}{r.name}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: '3px'
+                                }}
+                            >
+                                <span
+                                    style={{
+                                        fontSize: '12px',
+                                        color: complete ? '#4caf50' : '#ccc'
+                                    }}
+                                >
+                                    {complete ? '✓ ' : ''}
+                                    {r.name}
                                 </span>
                                 <span style={{ fontSize: '11px', color: '#888' }}>
                                     {r.done}/{r.total}

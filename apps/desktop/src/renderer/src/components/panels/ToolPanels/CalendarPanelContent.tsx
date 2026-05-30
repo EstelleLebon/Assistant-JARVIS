@@ -19,7 +19,11 @@ function formatTime(iso: string): string {
 
 function formatDate(iso: string): string {
     try {
-        return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+        return new Date(iso).toLocaleDateString('fr-FR', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short'
+        })
     } catch {
         return iso
     }
@@ -28,7 +32,11 @@ function formatDate(iso: string): string {
 function isToday(iso: string): boolean {
     const d = new Date(iso)
     const now = new Date()
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+    return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+    )
 }
 
 function isSoon(iso: string): boolean {
@@ -40,7 +48,14 @@ export default function CalendarPanelContent({ data }: { data: unknown }) {
     const d = data as CalendarData
 
     return (
-        <div style={{ padding: '12px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '12px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             {d.events.length === 0 ? (
                 <div style={{ color: '#666', fontSize: '13px' }}>Aucun événement.</div>
             ) : (
@@ -58,16 +73,40 @@ export default function CalendarPanelContent({ data }: { data: unknown }) {
                                     padding: '10px 12px'
                                 }}
                             >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ fontSize: '13px', fontWeight: 600, flex: 1 }}>{ev.title}</div>
-                                    {soon && <div style={{ fontSize: '10px', color: '#ffa000', marginLeft: '8px' }}>bientôt</div>}
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'flex-start'
+                                    }}
+                                >
+                                    <div style={{ fontSize: '13px', fontWeight: 600, flex: 1 }}>
+                                        {ev.title}
+                                    </div>
+                                    {soon && (
+                                        <div
+                                            style={{
+                                                fontSize: '10px',
+                                                color: '#ffa000',
+                                                marginLeft: '8px'
+                                            }}
+                                        >
+                                            bientôt
+                                        </div>
+                                    )}
                                 </div>
                                 <div style={{ fontSize: '11px', color: '#888', marginTop: '3px' }}>
                                     {today ? '' : `${formatDate(ev.start)} · `}
                                     {formatTime(ev.start)} – {formatTime(ev.end)}
                                 </div>
                                 {ev.location && (
-                                    <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                                    <div
+                                        style={{
+                                            fontSize: '11px',
+                                            color: '#666',
+                                            marginTop: '2px'
+                                        }}
+                                    >
                                         📍 {ev.location}
                                     </div>
                                 )}

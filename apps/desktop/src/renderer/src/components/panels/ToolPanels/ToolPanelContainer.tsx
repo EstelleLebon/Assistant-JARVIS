@@ -66,7 +66,11 @@ export default function ToolPanelContainer() {
                         anchorIndex={ANCHOR_BASE + index}
                         width={sizes.width}
                         height={sizes.height}
-                        connectionOptions={{ color: 'rgba(180,120,255,0.25)', thickness: 0.08, numLines: 10 }}
+                        connectionOptions={{
+                            color: 'rgba(180,120,255,0.25)',
+                            thickness: 0.08,
+                            numLines: 10
+                        }}
                         hideButtonText={title.slice(0, 2)}
                     >
                         <Content data={panel.data} />

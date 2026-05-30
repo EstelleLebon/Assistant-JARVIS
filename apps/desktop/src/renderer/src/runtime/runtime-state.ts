@@ -1,7 +1,12 @@
 export type RuntimeMode = 'idle' | 'listening' | 'thinking' | 'speaking' | 'sleep'
 
 export type ServiceStatus = 'stopped' | 'starting' | 'running' | 'error'
-export type ServiceName = 'wakeword' | 'chrome-stt' | 'piper' | 'tools-server' | 'system-tools-server'
+export type ServiceName =
+    | 'wakeword'
+    | 'chrome-stt'
+    | 'piper'
+    | 'tools-server'
+    | 'system-tools-server'
 
 export interface RuntimeState {
     mode: RuntimeMode

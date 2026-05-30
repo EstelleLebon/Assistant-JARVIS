@@ -6,12 +6,7 @@ import { join } from 'path'
 import logger from './logger'
 
 const PORT = 7823
-const CHROME_CANDIDATES = [
-    'google-chrome',
-    'google-chrome-stable',
-    'chromium-browser',
-    'chromium'
-]
+const CHROME_CANDIDATES = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium']
 
 type SttEvent = 'wake' | 'partial' | 'final' | 'log-info' | 'log-warn' | 'log-error'
 
@@ -82,9 +77,18 @@ export function startChromeSidecar(
                 return
             }
 
-            if (msg.type === 'log-info') { logger.info('[STT chrome] ' + msg.text); return }
-            if (msg.type === 'log-warn') { logger.warn('[STT chrome] ' + msg.text); return }
-            if (msg.type === 'log-error') { logger.error('[STT chrome] ' + msg.text); return }
+            if (msg.type === 'log-info') {
+                logger.info('[STT chrome] ' + msg.text)
+                return
+            }
+            if (msg.type === 'log-warn') {
+                logger.warn('[STT chrome] ' + msg.text)
+                return
+            }
+            if (msg.type === 'log-error') {
+                logger.error('[STT chrome] ' + msg.text)
+                return
+            }
 
             if (msg.type === 'partial' || msg.type === 'final') {
                 onEvent(msg.type, msg.text ?? '')
@@ -110,19 +114,25 @@ export function startChromeSidecar(
         if (stopped) return
         const bin = findChrome()
         if (!bin) {
-            logger.error('[STT sidecar] No Chrome/Chromium found — tried: ' + CHROME_CANDIDATES.join(', '))
+            logger.error(
+                '[STT sidecar] No Chrome/Chromium found — tried: ' + CHROME_CANDIDATES.join(', ')
+            )
             emitSidecarStatus('error')
             return
         }
         logger.info(`[STT sidecar] Launching Chrome: ${bin}`)
-        chrome = spawn(bin, [
-            `--app=http://localhost:${PORT}`,
-            '--window-size=320,80',
-            '--no-first-run',
-            '--no-default-browser-check',
-            '--disable-extensions',
-            '--start-minimized',
-        ], { stdio: 'ignore', detached: false })
+        chrome = spawn(
+            bin,
+            [
+                `--app=http://localhost:${PORT}`,
+                '--window-size=320,80',
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--disable-extensions',
+                '--start-minimized'
+            ],
+            { stdio: 'ignore', detached: false }
+        )
 
         chrome.on('exit', (code) => {
             if (stopped) return
@@ -132,7 +142,9 @@ export function startChromeSidecar(
             if (restartCount < MAX_RESTARTS) {
                 const delay = 1000 * (restartCount + 1)
                 restartCount++
-                logger.info(`[STT sidecar] Restarting Chrome in ${delay}ms (attempt ${restartCount}/${MAX_RESTARTS})`)
+                logger.info(
+                    `[STT sidecar] Restarting Chrome in ${delay}ms (attempt ${restartCount}/${MAX_RESTARTS})`
+                )
                 emitSidecarStatus('connecting')
                 setTimeout(launchChrome, delay)
             } else {

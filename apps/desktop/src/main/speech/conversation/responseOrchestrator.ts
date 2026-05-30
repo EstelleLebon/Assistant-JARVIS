@@ -1,5 +1,11 @@
 import { askOllamaStream } from '../../llm/ollamaClient'
-import { queueSpeak, stopSpeaking, isTTSPlaying, ttsEvents, extractTTSChunks } from '../TTS/ttsPlayer'
+import {
+    queueSpeak,
+    stopSpeaking,
+    isTTSPlaying,
+    ttsEvents,
+    extractTTSChunks
+} from '../TTS/ttsPlayer'
 import logger from '../../logger'
 import type Conversation from './Conversation'
 import { executeTool, type ToolCallRequest } from '../../tools/toolsClient'
@@ -107,7 +113,9 @@ export async function handleUserMessage(
                     phrase = phrase.replace(/\s*["«]?undefined["»]?.*$/, '...').trim()
                 }
                 speakTracked(phrase)
-                logger.info(`[responseOrchestrator] Pending phrase queued early mid-stream for "${toolName}"`)
+                logger.info(
+                    `[responseOrchestrator] Pending phrase queued early mid-stream for "${toolName}"`
+                )
             }
 
             const reply = await askOllamaStream(
@@ -142,6 +150,12 @@ export async function handleUserMessage(
             )
 
             const { toolCall, spokenText } = extractToolCall(reply)
+
+            if (toolCall && toolRound >= MAX_TOOL_ROUNDS) {
+                logger.warn(
+                    `[responseOrchestrator] MAX_TOOL_ROUNDS (${MAX_TOOL_ROUNDS}) reached — treating response as text`
+                )
+            }
 
             if (toolCall && toolRound < MAX_TOOL_ROUNDS) {
                 toolRound++
@@ -190,16 +204,23 @@ export async function handleUserMessage(
             emit('assistant:llm_response', { text: reply })
 
             if (anySpeakQueued) {
+                let finished = false
                 const finish = () => {
+                    if (finished) return
+                    finished = true
+                    clearTimeout(ttsTimeout)
+                    ttsEvents.removeListener('speaking-end', finish)
                     logger.info('[responseOrchestrator] TTS done — assistant sleeping')
                     onDone()
                 }
-                // Race guard: TTS may have already finished for short responses
-                if (!isTTSPlaying()) {
+                const ttsTimeout = setTimeout(() => {
+                    logger.warn(
+                        '[responseOrchestrator] TTS speaking-end timeout (60s) — forcing done'
+                    )
                     finish()
-                } else {
-                    ttsEvents.once('speaking-end', finish)
-                }
+                }, 60_000)
+                ttsEvents.once('speaking-end', finish)
+                if (!isTTSPlaying()) finish()
             } else {
                 // Nothing was spoken (empty or pure-tool response) — complete immediately
                 logger.info('[responseOrchestrator] No TTS queued — assistant sleeping')

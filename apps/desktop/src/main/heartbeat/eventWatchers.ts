@@ -33,7 +33,9 @@ function checkUpcomingReminders(): void {
         (r) => !r.delivered && r.dueAt > now && r.dueAt - now <= REMINDER_WARN_AHEAD_MS
     )
     for (const r of upcoming) {
-        logger.debug(`[eventWatcher] Reminder due soon: "${r.text}" in ${Math.round((r.dueAt - now) / 60_000)}min`)
+        logger.debug(
+            `[eventWatcher] Reminder due soon: "${r.text}" in ${Math.round((r.dueAt - now) / 60_000)}min`
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import db from './db.js'
 import { registerHealth } from './routes/health.js'
 import { registerCalendar } from './routes/calendar.js'
 import { registerTasks } from './routes/tasks.js'
@@ -16,12 +17,25 @@ fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, b
     }
 })
 
+fastify.setErrorHandler((error, _request, reply) => {
+    fastify.log.error(error)
+    reply.status(500).send({ ok: false, error: 'internal' })
+})
+
 await registerHealth(fastify)
 await registerCalendar(fastify)
 await registerTasks(fastify)
 await registerRoutines(fastify)
 await registerWeather(fastify)
 await registerMemory(fastify)
+
+const shutdown = async () => {
+    await fastify.close()
+    db.close()
+    process.exit(0)
+}
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
 
 const start = async () => {
     try {

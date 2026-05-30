@@ -43,18 +43,50 @@ Python environment: `.venv/` at the repo root — all Python subprocesses use `.
 
 ## Architecture
 
-### Process boundary
+### Mono-repo layout
 
-**Electron main process** (`src/main/`) handles all I/O and speech pipeline:
-- Runs wake-word detection via ONNX model (`onnxruntime-node`, no Python)
-- Spawns and manages a Chrome STT sidecar for transcription (Web Speech API)
-- Runs the Ollama LLM client with context-window trimming (token counting via Python microservice on port 8123)
-- Manages tool servers (Node.js HTTP servers on ports 3001 & 7824)
-- Bridges events to the renderer via IPC
+The repository contains three separate apps, each in its own package:
 
-**Renderer process** (`src/renderer/`) is a pure React/Three.js UI:
-- Receives IPC events and drives the orb + conversation view
-- Maintains conversation state in Zustand
+| Package | Path | Role |
+|---|---|---|
+| `desktop` | `apps/desktop/` | Electron app — wake word, STT, LLM, TTS, UI |
+| `tools-server` | `apps/tools-server/` | Node.js HTTP server on **port 3001** — general tools (memory, web search, weather, reminders…) |
+| `system-tools-server` | `apps/system-tools-server/` | Node.js HTTP server on **port 7824** — OS/system tools (screenshot, shutdown, notifications…) |
+
+The two tool servers run as **independent Node.js processes** — they are not embedded in Electron. `apps/desktop/` spawns and manages them at startup via child_process, and communicates with them over HTTP from the main process (`toolsClient`).
+
+---
+
+### Electron process model
+
+The desktop app is split into three Electron layers:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Electron Main  (apps/desktop/src/main/)                │
+│  Node.js full access — I/O, child processes, IPC        │
+│  • Wake word (ONNX), STT sidecar, Ollama client, TTS   │
+│  • Spawns tool servers; calls them via HTTP             │
+│  • Sends IPC events to renderer                         │
+└────────────────────┬────────────────────────────────────┘
+                     │ contextBridge (ipcMain ↔ ipcRenderer)
+┌────────────────────▼────────────────────────────────────┐
+│  Preload  (apps/desktop/src/preload/)                   │
+│  Isolated bridge — exposes a typed `window.jarvis` API  │
+│  • Wraps ipcRenderer calls into safe named methods      │
+│  • No direct Node.js access in renderer                 │
+└────────────────────┬────────────────────────────────────┘
+                     │ window.jarvis.*
+┌────────────────────▼────────────────────────────────────┐
+│  Renderer  (apps/desktop/src/renderer/)                 │
+│  React/Three.js UI — sandboxed, no Node.js             │
+│  • Subscribes to IPC events via window.jarvis.on*()    │
+│  • Drives orb animation + conversation view             │
+│  • State: eventBus (runtime) + sessionStore (Zustand)  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Rule**: renderer code must never import from `src/main/` or call Node APIs directly. All cross-boundary communication goes through preload → IPC → main.
 
 ### Speech pipeline (main process)
 
@@ -86,6 +118,8 @@ Main → Renderer:
 - `assistant:llm_error` — LLM call failed
 - `assistant:speaking_start` / `assistant:speaking_end` — TTS playback boundaries
 - `assistant:tool_call` / `assistant:tool_result` — tool execution events
+- `assistant:llm_queued` — LLM task enqueued but blocked (Ollama busy) — triggers UI waiting indicator
+- `assistant:reminder` — a due reminder was triggered (`{ text: string }`)
 - `conversation:cleared` — conversation reset
 - `service:status` — service lifecycle updates (`{ service, status }`)
 

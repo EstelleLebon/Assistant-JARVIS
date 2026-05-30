@@ -359,7 +359,9 @@ const GenericPanel: React.FC<GenericPanelProps> = ({
                 title="Réduire"
                 aria-label="Réduire"
             >
-                <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, marginBottom: 4 }}>_</span>
+                <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, marginBottom: 4 }}>
+                    _
+                </span>
             </PanelButton>
             {/* Bouton détruire — optionnel */}
             {onDestroy && (

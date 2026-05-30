@@ -4,6 +4,7 @@ import { Transform } from 'stream'
 import { EventEmitter } from 'events'
 import logger from '../../logger'
 import { stripMarkdown } from './stripMarkdown'
+import { normalizeFrenchForTTS } from './normalizeFrench'
 
 export const ttsEvents = new EventEmitter()
 
@@ -85,28 +86,39 @@ export function setTTSVolume(v: number): void {
     ttsVolume = Math.max(0, Math.min(1, v))
 }
 
+let _lastRmsEmit = 0
+
 function createVolumeTransform(): Transform {
     return new Transform({
         transform(chunk: Buffer, _enc, cb) {
-            if (ttsVolume === 1.0) {
-                cb(null, chunk)
-                return
-            }
-            const out = Buffer.allocUnsafe(chunk.length)
+            const out = ttsVolume === 1.0 ? chunk : Buffer.allocUnsafe(chunk.length)
+
+            let sumSq = 0
+            const samples = Math.floor(chunk.length / 2)
+
             for (let i = 0; i + 1 < chunk.length; i += 2) {
-                const s = Math.max(
-                    -32768,
-                    Math.min(32767, Math.round(chunk.readInt16LE(i) * ttsVolume))
-                )
-                out.writeInt16LE(s, i)
+                const raw = chunk.readInt16LE(i)
+                const scaled =
+                    ttsVolume === 1.0
+                        ? raw
+                        : Math.max(-32768, Math.min(32767, Math.round(raw * ttsVolume)))
+                if (ttsVolume !== 1.0) out.writeInt16LE(scaled, i)
+                sumSq += (scaled / 32768) ** 2
             }
+
+            const now = Date.now()
+            if (samples > 0 && now - _lastRmsEmit >= 50) {
+                _lastRmsEmit = now
+                ttsEvents.emit('audio-level', Math.sqrt(sumSq / samples))
+            }
+
             cb(null, out)
         }
     })
 }
 
 export function queueSpeak(sentence: string): void {
-    const trimmed = stripMarkdown(sentence)
+    const trimmed = normalizeFrenchForTTS(stripMarkdown(sentence))
     if (!trimmed) return
     queue.push(trimmed)
     if (!isPlaying) drain()

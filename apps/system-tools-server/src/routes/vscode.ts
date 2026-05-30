@@ -19,7 +19,9 @@ async function getRecentVscodeFolders(): Promise<RecentEntry[]> {
         const storage = JSON.parse(raw)
         const workspaces: string[] =
             storage?.openedPathsList?.workspaces3 ??
-            storage?.openedPathsList?.entries?.map((e: { folderUri?: string; fileUri?: string }) => e.folderUri ?? e.fileUri).filter(Boolean) ??
+            storage?.openedPathsList?.entries
+                ?.map((e: { folderUri?: string; fileUri?: string }) => e.folderUri ?? e.fileUri)
+                .filter(Boolean) ??
             []
         return workspaces
             .filter((w) => w.startsWith('file://'))
@@ -36,7 +38,9 @@ async function getRecentVscodeFolders(): Promise<RecentEntry[]> {
 export async function vscodeRoutes(fastify: FastifyInstance) {
     fastify.get('/tools/vscode/folders', async () => {
         const db = getDb()
-        const aliases = db.prepare('SELECT * FROM vscode_aliases ORDER BY last_used DESC').all() as VscodeAlias[]
+        const aliases = db
+            .prepare('SELECT * FROM vscode_aliases ORDER BY last_used DESC')
+            .all() as VscodeAlias[]
         const recent = await getRecentVscodeFolders()
         return ok({ aliases, recent })
     })
@@ -51,10 +55,14 @@ export async function vscodeRoutes(fastify: FastifyInstance) {
 
         if (alias) {
             const db = getDb()
-            const row = db.prepare('SELECT * FROM vscode_aliases WHERE name = ?').get(alias) as VscodeAlias | undefined
+            const row = db.prepare('SELECT * FROM vscode_aliases WHERE name = ?').get(alias) as
+                | VscodeAlias
+                | undefined
             if (!row) {
                 const recent = await getRecentVscodeFolders()
-                const match = recent.find((r) => r.label.toLowerCase().includes(alias.toLowerCase()))
+                const match = recent.find((r) =>
+                    r.label.toLowerCase().includes(alias.toLowerCase())
+                )
                 if (match) {
                     resolvedPath = match.path
                 } else {
@@ -62,7 +70,9 @@ export async function vscodeRoutes(fastify: FastifyInstance) {
                 }
             } else {
                 resolvedPath = row.path
-                db.prepare('UPDATE vscode_aliases SET last_used = datetime("now") WHERE id = ?').run(row.id)
+                db.prepare(
+                    'UPDATE vscode_aliases SET last_used = datetime("now") WHERE id = ?'
+                ).run(row.id)
             }
         } else {
             resolvedPath = path
@@ -82,7 +92,11 @@ export async function vscodeRoutes(fastify: FastifyInstance) {
         if (!name || !path) return err('INVALID_PARAMS', 'name and path are required')
         const db = getDb()
         const id = randomUUID()
-        db.prepare('INSERT INTO vscode_aliases (id, name, path) VALUES (?, ?, ?)').run(id, name, path)
+        db.prepare('INSERT INTO vscode_aliases (id, name, path) VALUES (?, ?, ?)').run(
+            id,
+            name,
+            path
+        )
         const row = db.prepare('SELECT * FROM vscode_aliases WHERE id = ?').get(id) as VscodeAlias
         return ok(row)
     })

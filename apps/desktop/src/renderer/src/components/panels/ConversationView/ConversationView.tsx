@@ -13,12 +13,23 @@ function ConversationView({ visible }: ConversationViewProps) {
         partialTranscript,
         streamingMessage,
         errorMessage,
+        llmQueued,
         clearMessages,
         clearError,
         appendSessionFinal,
         commitSession
     } = useSessionStore()
     const [input, setInput] = useState('')
+    const [llmQueuedLate, setLlmQueuedLate] = useState(false)
+
+    useEffect(() => {
+        if (!llmQueued) {
+            setLlmQueuedLate(false)
+            return
+        }
+        const t = setTimeout(() => setLlmQueuedLate(true), 15_000)
+        return () => clearTimeout(t)
+    }, [llmQueued])
     const bottomRef = useRef<HTMLDivElement>(null)
     const scrollRef = useRef<HTMLDivElement>(null)
     const isAtBottomRef = useRef(true)
@@ -113,7 +124,9 @@ function ConversationView({ visible }: ConversationViewProps) {
                                 boxSizing: 'border-box',
                                 wordBreak: 'break-word',
                                 background:
-                                    msg.role === 'assistant' ? 'rgba(0,120,255,0.04)' : 'transparent'
+                                    msg.role === 'assistant'
+                                        ? 'rgba(0,120,255,0.04)'
+                                        : 'transparent'
                             }}
                         >
                             {msg.text}
@@ -143,6 +156,57 @@ function ConversationView({ visible }: ConversationViewProps) {
                         }}
                     >
                         {liveText}
+                    </div>
+                )}
+
+                {llmQueued && streamingMessage === null && (
+                    <div
+                        style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            margin: '2px 0',
+                            padding: '0 12px'
+                        }}
+                    >
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '6px 10px',
+                                background: 'rgba(255,255,255,0.04)',
+                                border: `1px solid ${llmQueuedLate ? 'rgba(255,160,50,0.3)' : 'rgba(255,255,255,0.1)'}`,
+                                borderRadius: 8,
+                                color: 'rgba(255,255,255,0.55)',
+                                fontSize: 12
+                            }}
+                        >
+                            <span style={{ fontSize: 13, opacity: 0.6 }}>⏳</span>
+                            <span
+                                style={{
+                                    fontWeight: 600,
+                                    color: llmQueuedLate
+                                        ? 'rgba(255,160,50,0.9)'
+                                        : 'rgba(255,255,255,0.7)'
+                                }}
+                            >
+                                {llmQueuedLate ? 'Ollama semble lent…' : "En attente d'Ollama…"}
+                            </span>
+                            <span
+                                style={{
+                                    display: 'inline-block',
+                                    width: 10,
+                                    height: 10,
+                                    border: '1.5px solid rgba(255,255,255,0.2)',
+                                    borderTopColor: llmQueuedLate
+                                        ? 'rgba(255,160,50,0.9)'
+                                        : 'rgba(255,255,255,0.7)',
+                                    borderRadius: '50%',
+                                    animation: 'tool-spin 0.7s linear infinite',
+                                    verticalAlign: 'middle'
+                                }}
+                            />
+                        </div>
                     </div>
                 )}
 

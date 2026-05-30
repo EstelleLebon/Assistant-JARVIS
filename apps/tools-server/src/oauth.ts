@@ -23,9 +23,7 @@ export function createOAuth2Client() {
         const token = JSON.parse(readFileSync(tokenPath, 'utf8'))
         client.setCredentials(token)
         client.on('tokens', (tokens) => {
-            const current = existsSync(tokenPath)
-                ? JSON.parse(readFileSync(tokenPath, 'utf8'))
-                : {}
+            const current = existsSync(tokenPath) ? JSON.parse(readFileSync(tokenPath, 'utf8')) : {}
             writeFileSync(tokenPath, JSON.stringify({ ...current, ...tokens }))
         })
     }
@@ -44,9 +42,6 @@ export function hasToken(): boolean {
 export function getAuthUrl(client: ReturnType<typeof createOAuth2Client>): string {
     return client.generateAuthUrl({
         access_type: 'offline',
-        scope: [
-            'https://www.googleapis.com/auth/calendar',
-            'https://www.googleapis.com/auth/tasks',
-        ],
+        scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/tasks']
     })
 }

@@ -62,6 +62,18 @@ const NotificationPanel: React.FC = () => {
                             >
                                 {n.message}
                             </div>
+                            <div
+                                style={{
+                                    color: 'rgba(255,255,255,0.35)',
+                                    fontSize: 11,
+                                    marginTop: 4
+                                }}
+                            >
+                                {new Date(n.timestamp).toLocaleTimeString('fr-FR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                })}
+                            </div>
                         </div>
                         <button
                             onClick={() => dismissNotification(n.id)}

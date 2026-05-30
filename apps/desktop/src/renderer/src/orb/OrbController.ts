@@ -15,30 +15,41 @@ export class OrbController {
           })
         | null = null
 
+    private unsubs: (() => void)[] = []
+    private pulseTimeout: ReturnType<typeof setTimeout> | null = null
+
     constructor() {
-        eventBus.on('wake-word-detected', () => {
-            this.setState('listening')
-        })
-
-        eventBus.on('thinking-start', () => {
-            this.setState('thinking')
-        })
-
-        eventBus.on('speech-start', () => {
-            this.setState('listening')
-        })
-
-        eventBus.on('speaking-start', () => {
-            this.setState('speaking')
-        })
-
-        eventBus.on('speaking-end', () => {
-            this.setState('idle')
-        })
-
-        eventBus.on('error', () => {
-            this.setState('error')
-        })
+        this.unsubs = [
+            eventBus.on('wake-word-detected', () => {
+                console.log('[OrbCtrl:DEBUG] wake-word-detected → setState listening')
+                this.setState('listening')
+            }),
+            eventBus.on('thinking-start', () => {
+                console.log('[OrbCtrl:DEBUG] thinking-start → setState thinking')
+                this.setState('thinking')
+            }),
+            eventBus.on('speech-start', () => {
+                console.log('[OrbCtrl:DEBUG] speech-start → setState listening')
+                this.setState('listening')
+            }),
+            eventBus.on('speech-expired', () => {
+                console.log('[OrbCtrl:DEBUG] speech-expired → setState idle')
+                this.setState('idle')
+            }),
+            eventBus.on('speaking-start', () => {
+                console.log('[OrbCtrl:DEBUG] speaking-start → setState speaking, orb=', this.orb)
+                this.setState('speaking')
+            }),
+            eventBus.on('speaking-end', () => {
+                console.log('[OrbCtrl:DEBUG] speaking-end → setState idle')
+                this.setState('idle')
+            }),
+            eventBus.on('error', () => {
+                console.log('[OrbCtrl:DEBUG] error → setState error')
+                this.setState('error')
+            }),
+            eventBus.on('tool-finished', () => this.pulse())
+        ]
     }
 
     attach(
@@ -74,6 +85,20 @@ export class OrbController {
 
     detach() {
         this.orb = null
+        if (this.pulseTimeout !== null) {
+            clearTimeout(this.pulseTimeout)
+            this.pulseTimeout = null
+        }
+    }
+
+    destroy() {
+        this.orb = null
+        this.unsubs.forEach((u) => u())
+        this.unsubs = []
+        if (this.pulseTimeout !== null) {
+            clearTimeout(this.pulseTimeout)
+            this.pulseTimeout = null
+        }
     }
 
     /**
@@ -96,11 +121,16 @@ export class OrbController {
     }
 
     pulse() {
-        // futur
+        this.orb?.setVolume(0.85)
+        if (this.pulseTimeout !== null) clearTimeout(this.pulseTimeout)
+        this.pulseTimeout = setTimeout(() => {
+            this.orb?.setVolume(0)
+            this.pulseTimeout = null
+        }, 250)
     }
 
     notify() {
-        // futur
+        this.pulse()
     }
 }
 

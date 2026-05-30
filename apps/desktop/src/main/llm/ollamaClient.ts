@@ -43,7 +43,13 @@ export async function askOllamaStream(
     const lastUserQuery = [...history].reverse().find((m) => m.role === 'user')?.content
     const memoryContext = await getMemoryContext(lastUserQuery)
     const messages: OllamaMessage[] = [
-        { role: 'system', content: createSystemPrompt({ ...modelOptions, memoryContext: memoryContext || undefined }) },
+        {
+            role: 'system',
+            content: createSystemPrompt({
+                ...modelOptions,
+                memoryContext: memoryContext || undefined
+            })
+        },
         ...history
     ]
 

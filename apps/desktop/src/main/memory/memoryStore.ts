@@ -7,7 +7,7 @@ export type MemoryType = 'declarative' | 'episodic' | 'behavioral'
 export interface MemoryEntry {
     type: MemoryType
     content: string
-    importance: number   // 1–5
+    importance: number // 1–5
     tags?: string[]
 }
 

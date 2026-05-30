@@ -24,12 +24,18 @@ class EventBus {
         [K in EventKey]?: EventCallback<K>[]
     } = {}
 
-    on<K extends EventKey>(event: K, callback: EventCallback<K>) {
+    on<K extends EventKey>(event: K, callback: EventCallback<K>): () => void {
         if (!this.listeners[event]) {
             this.listeners[event] = []
         }
-
         this.listeners[event]?.push(callback)
+        return () => {
+            const arr = this.listeners[event] as EventCallback<K>[] | undefined
+            if (arr) {
+                const idx = arr.indexOf(callback)
+                if (idx !== -1) arr.splice(idx, 1)
+            }
+        }
     }
 
     emit<K extends EventKey>(event: K, payload: RuntimeEvents[K]) {
@@ -62,12 +68,14 @@ class EventBus {
                 break
 
             case 'speaking-start':
+                console.log('[EventBus:DEBUG] speaking-start → runtimeState.mode = speaking')
                 runtimeState.setState({
                     mode: 'speaking'
                 })
                 break
 
             case 'speaking-end':
+                console.log('[EventBus:DEBUG] speaking-end → runtimeState.mode = idle')
                 runtimeState.setState({
                     mode: 'idle'
                 })

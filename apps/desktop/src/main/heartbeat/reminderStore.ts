@@ -60,3 +60,17 @@ export function markDelivered(id: string): void {
         saveAll(reminders)
     }
 }
+
+export function getPendingReminders(): Reminder[] {
+    return loadAll().filter((r) => !r.delivered)
+}
+
+export function deleteReminder(id: string): boolean {
+    const reminders = loadAll()
+    const idx = reminders.findIndex((r) => r.id === id)
+    if (idx === -1) return false
+    reminders.splice(idx, 1)
+    saveAll(reminders)
+    logger.info(`[reminderStore] Deleted reminder ${id}`)
+    return true
+}

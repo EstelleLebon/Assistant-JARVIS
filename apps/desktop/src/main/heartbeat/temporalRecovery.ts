@@ -28,7 +28,9 @@ export function checkTemporalRecovery(): TemporalRecovery {
         const gapMs = Date.now() - lastSeen
         const hadGap = gapMs > GAP_THRESHOLD_MS
         if (hadGap) {
-            logger.info(`[heartbeat] Gap detected: ${Math.round(gapMs / 60_000)}min since last seen`)
+            logger.info(
+                `[heartbeat] Gap detected: ${Math.round(gapMs / 60_000)}min since last seen`
+            )
         }
         return { hadGap, gapMs }
     } catch {

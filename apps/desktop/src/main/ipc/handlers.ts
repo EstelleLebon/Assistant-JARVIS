@@ -11,6 +11,7 @@ import SpeechSession from '../speech/conversation/SpeechSession'
 import logger from '../logger'
 import type Conversation from '../speech/conversation/Conversation'
 import { pushTask } from '../taskQueue'
+import { llmQueue } from '../llm/llmQueue'
 
 interface IpcHandlerDeps {
     conversation: Conversation
@@ -27,11 +28,17 @@ interface IpcHandlerResult {
 }
 
 export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
-    const { conversation, getSpeechSession, setSpeechSession, emit, emitToStt, onConversationCleared } = deps
+    const {
+        conversation,
+        getSpeechSession,
+        setSpeechSession,
+        emit,
+        emitToStt,
+        onConversationCleared
+    } = deps
 
     let micMuted = false
     let startupComplete = false
-    let llmBusy = false
 
     ipcMain.on('app:startup-complete', () => {
         startupComplete = true
@@ -40,10 +47,39 @@ export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
 
     // --- STT event handler (called from Chrome sidecar AND IPC) ---
 
+    function enqueueConversation(text: string): void {
+        llmQueue.enqueue({
+            priority: 'conversation',
+            run: () =>
+                new Promise<void>((resolve) => {
+                    handleUserMessage(text, conversation, emit, () => {
+                        emitToStt('stt:session-end')
+                        resolve()
+                    }).catch((err) => {
+                        logger.error('[ipc] handleUserMessage unhandled error: ' + String(err))
+                        emit('assistant:llm_error', { message: String(err) })
+                        emitToStt('stt:session-end')
+                        resolve()
+                    })
+                }),
+            onQueued: () => {
+                logger.info('[ipc] Conversation queued — LLM busy')
+                emit('assistant:llm_queued')
+            },
+            onError: (err) => {
+                emit('assistant:llm_error', { message: String(err) })
+            }
+        })
+    }
+
     function handleWake(): void {
         if (!startupComplete) return
         if (micMuted) return
-        if (llmBusy) return
+        // Block new speech session only if a conversation task is already running or pending
+        if (llmQueue.isConversationActive()) {
+            logger.warn('[ipc] Wake ignored: conversation already active in LLM queue')
+            return
+        }
         if (getSpeechSession()?.isActive()) return
         if (isTTSPlaying()) stopSpeaking()
 
@@ -53,17 +89,15 @@ export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
         const session = new SpeechSession(
             (accumulated) => {
                 logger.info('[ipc] Session ended with: ' + accumulated)
-                llmBusy = true
-                handleUserMessage(accumulated, conversation, emit, () => {
-                    llmBusy = false
-                    emitToStt('stt:session-end')
-                })
+                setSpeechSession(null)
+                enqueueConversation(accumulated)
             },
             (partial) => {
                 emit('assistant:partial_transcript', { text: partial })
             },
             () => {
                 logger.info('[ipc] Session expired with no transcript')
+                setSpeechSession(null)
                 emitToStt('stt:session-end')
                 emit('assistant:speech_expired')
             }
@@ -117,7 +151,7 @@ export function registerIpcHandlers(deps: IpcHandlerDeps): IpcHandlerResult {
 
     ipcMain.on('assistant:user_text', (_e, text: string) => {
         logger.info(`[ipc] User text received: ${text}`)
-        handleUserMessage(text, conversation, emit, () => {})
+        enqueueConversation(text)
     })
 
     ipcMain.on('mic:set-muted', (_, { muted }: { muted: boolean }) => {

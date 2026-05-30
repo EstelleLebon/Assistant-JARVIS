@@ -55,20 +55,26 @@ export default function ToolCallBlock({ msg }: { msg: ToolMessage }) {
                     }}
                 >
                     <span style={{ fontSize: 13, opacity: 0.6 }}>{TOOL_ICON}</span>
-                    <span style={{ fontWeight: 600, letterSpacing: '0.02em', color: 'rgba(255,255,255,0.85)' }}>
+                    <span
+                        style={{
+                            fontWeight: 600,
+                            letterSpacing: '0.02em',
+                            color: 'rgba(255,255,255,0.85)'
+                        }}
+                    >
                         {msg.toolName}
                     </span>
                     {hasArgs && !expanded && (
-                        <span style={{ opacity: 0.45, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span
+                            style={{ opacity: 0.45, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
                             {formatArgs(msg.toolArgs)}
                         </span>
                     )}
-                    <span style={{ marginLeft: 'auto', paddingLeft: 12, opacity: 0.4, fontSize: 10 }}>
-                        {pending ? (
-                            <Spinner />
-                        ) : (
-                            expanded ? '▲' : '▼'
-                        )}
+                    <span
+                        style={{ marginLeft: 'auto', paddingLeft: 12, opacity: 0.4, fontSize: 10 }}
+                    >
+                        {pending ? <Spinner /> : expanded ? '▲' : '▼'}
                     </span>
                 </button>
 
@@ -85,35 +91,55 @@ export default function ToolCallBlock({ msg }: { msg: ToolMessage }) {
                     >
                         {hasArgs && (
                             <div>
-                                <div style={{ fontSize: 10, opacity: 0.4, marginBottom: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                                <div
+                                    style={{
+                                        fontSize: 10,
+                                        opacity: 0.4,
+                                        marginBottom: 4,
+                                        letterSpacing: '0.06em',
+                                        textTransform: 'uppercase'
+                                    }}
+                                >
                                     Arguments
                                 </div>
-                                <pre style={{
-                                    margin: 0,
-                                    fontSize: 11,
-                                    color: 'rgba(255,255,255,0.6)',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-all',
-                                    fontFamily: 'monospace'
-                                }}>
+                                <pre
+                                    style={{
+                                        margin: 0,
+                                        fontSize: 11,
+                                        color: 'rgba(255,255,255,0.6)',
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-all',
+                                        fontFamily: 'monospace'
+                                    }}
+                                >
                                     {JSON.stringify(msg.toolArgs, null, 2)}
                                 </pre>
                             </div>
                         )}
                         <div>
-                            <div style={{ fontSize: 10, opacity: 0.4, marginBottom: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                            <div
+                                style={{
+                                    fontSize: 10,
+                                    opacity: 0.4,
+                                    marginBottom: 4,
+                                    letterSpacing: '0.06em',
+                                    textTransform: 'uppercase'
+                                }}
+                            >
                                 Résultat
                             </div>
-                            <pre style={{
-                                margin: 0,
-                                fontSize: 11,
-                                color: 'rgba(255,255,255,0.55)',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-all',
-                                fontFamily: 'monospace',
-                                maxHeight: 200,
-                                overflowY: 'auto'
-                            }}>
+                            <pre
+                                style={{
+                                    margin: 0,
+                                    fontSize: 11,
+                                    color: 'rgba(255,255,255,0.55)',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-all',
+                                    fontFamily: 'monospace',
+                                    maxHeight: 200,
+                                    overflowY: 'auto'
+                                }}
+                            >
                                 {msg.toolResult}
                             </pre>
                         </div>

@@ -40,13 +40,24 @@ export function startHeartbeatScheduler(opts: SchedulerOptions = {}): void {
     fastTimer = setInterval(fastTick, FAST_INTERVAL_MS)
     mediumTimer = setInterval(mediumTick, mediumIntervalMs)
     slowTimer = setInterval(slowTick, SLOW_INTERVAL_MS)
-    logger.info(`[heartbeat] Scheduler started (fast: ${FAST_INTERVAL_MS}ms, medium: ${mediumIntervalMs}ms, slow: ${SLOW_INTERVAL_MS}ms)`)
+    logger.info(
+        `[heartbeat] Scheduler started (fast: ${FAST_INTERVAL_MS}ms, medium: ${mediumIntervalMs}ms, slow: ${SLOW_INTERVAL_MS}ms)`
+    )
 }
 
 export function stopHeartbeatScheduler(): void {
-    if (fastTimer) { clearInterval(fastTimer); fastTimer = null }
-    if (mediumTimer) { clearInterval(mediumTimer); mediumTimer = null }
-    if (slowTimer) { clearInterval(slowTimer); slowTimer = null }
+    if (fastTimer) {
+        clearInterval(fastTimer)
+        fastTimer = null
+    }
+    if (mediumTimer) {
+        clearInterval(mediumTimer)
+        mediumTimer = null
+    }
+    if (slowTimer) {
+        clearInterval(slowTimer)
+        slowTimer = null
+    }
     logger.info('[heartbeat] Scheduler stopped')
 }
 

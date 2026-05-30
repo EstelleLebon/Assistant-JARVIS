@@ -17,7 +17,9 @@ async function checkGoogleOAuth(): Promise<DepStatus> {
     }
 }
 
-async function checkGoogleCalendar(auth: ReturnType<typeof createOAuth2Client>): Promise<DepStatus> {
+async function checkGoogleCalendar(
+    auth: ReturnType<typeof createOAuth2Client>
+): Promise<DepStatus> {
     try {
         const cal = google.calendar({ version: 'v3', auth })
         await cal.calendarList.list({ maxResults: 1 })
@@ -48,7 +50,9 @@ function checkSqlite(): DepStatus {
 
 async function checkWttr(): Promise<DepStatus> {
     try {
-        const res = await fetch('https://wttr.in/Paris?format=j1', { signal: AbortSignal.timeout(3000) })
+        const res = await fetch('https://wttr.in/Paris?format=j1', {
+            signal: AbortSignal.timeout(3000)
+        })
         if (!res.ok) return { status: 'degraded', message: `HTTP ${res.status}` }
         return { status: 'ok' }
     } catch (e: any) {
@@ -66,27 +70,36 @@ export async function registerHealth(fastify: FastifyInstance) {
             auth = createOAuth2Client()
             oauthStatus = await checkGoogleOAuth()
         } catch {
-            oauthStatus = { status: 'error', message: 'OAuth client init failed (missing env vars?)' }
+            oauthStatus = {
+                status: 'error',
+                message: 'OAuth client init failed (missing env vars?)'
+            }
         }
 
         const [calStatus, tasksStatus, wttrStatus] = await Promise.all([
-            auth ? checkGoogleCalendar(auth) : Promise.resolve<DepStatus>({ status: 'error', message: 'No auth' }),
-            auth ? checkGoogleTasks(auth) : Promise.resolve<DepStatus>({ status: 'error', message: 'No auth' }),
-            checkWttr(),
+            auth
+                ? checkGoogleCalendar(auth)
+                : Promise.resolve<DepStatus>({ status: 'error', message: 'No auth' }),
+            auth
+                ? checkGoogleTasks(auth)
+                : Promise.resolve<DepStatus>({ status: 'error', message: 'No auth' }),
+            checkWttr()
         ])
 
         const sqliteStatus = checkSqlite()
 
-        return reply.send(ok({
-            status: 'ok',
-            uptime: Math.round(startTime),
-            dependencies: {
-                google_oauth: oauthStatus,
-                google_calendar: calStatus,
-                google_tasks: tasksStatus,
-                sqlite: sqliteStatus,
-                wttr: wttrStatus,
-            },
-        }))
+        return reply.send(
+            ok({
+                status: 'ok',
+                uptime: Math.round(startTime),
+                dependencies: {
+                    google_oauth: oauthStatus,
+                    google_calendar: calStatus,
+                    google_tasks: tasksStatus,
+                    sqlite: sqliteStatus,
+                    wttr: wttrStatus
+                }
+            })
+        )
     })
 }

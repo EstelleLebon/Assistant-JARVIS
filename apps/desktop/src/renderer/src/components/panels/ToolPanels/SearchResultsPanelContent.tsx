@@ -17,7 +17,14 @@ export default function SearchResultsPanelContent({ data }: { data: unknown }) {
     }
 
     return (
-        <div style={{ padding: '12px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '12px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             <div style={{ fontSize: '11px', color: '#888', marginBottom: '10px' }}>
                 Résultats pour : <strong style={{ color: '#aaa' }}>{d.query}</strong>
             </div>

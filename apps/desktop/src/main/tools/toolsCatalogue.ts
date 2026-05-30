@@ -1,5 +1,5 @@
-export type ToolServer = 'system-tools' | 'tools'
-export type HttpMethod = 'GET' | 'POST' | 'DELETE'
+export type ToolServer = 'system-tools' | 'tools' | 'client'
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 export interface ToolArgDef {
     name: string
@@ -15,7 +15,9 @@ export interface ToolDef {
     server: ToolServer
     method: HttpMethod
     path: string
-    /** Args passed as query params (for GET requests) */
+    /** Args interpolated into the URL path (e.g. :id) */
+    pathParams?: string[]
+    /** Args passed as query params */
     queryParams?: string[]
     /** Exposed to LLM by default without discovery */
     default: boolean
@@ -35,7 +37,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/browser/open',
         default: true,
-        pendingPhrase: (args) => `J'ouvre ${args.url}...`
+        pendingPhrase: () => `J'ouvre le navigateur...`
     },
     {
         name: 'browser_search',
@@ -53,7 +55,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/browser/search',
         default: true,
-        pendingPhrase: (args) => `Je recherche "${args.query}"...`
+        pendingPhrase: () => `Je lance la recherche...`
     },
     {
         name: 'browser_youtube',
@@ -71,7 +73,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/browser/youtube',
         default: true,
-        pendingPhrase: (args) => `Je cherche "${args.query}" sur YouTube...`
+        pendingPhrase: () => `J'ouvre Youtube et recherche...`
     },
     {
         name: 'media_play_pause',
@@ -118,37 +120,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/media/volume',
         default: true,
-        pendingPhrase: (args) => `Je règle le volume à ${args.level}...`
-    },
-    {
-        name: 'notify',
-        description: 'Send a desktop notification',
-        args: [
-            { name: 'title', type: 'string', required: true, description: 'Notification title' },
-            {
-                name: 'message',
-                type: 'string',
-                required: true,
-                description: 'Notification body'
-            },
-            {
-                name: 'urgency',
-                type: "'low'|'normal'|'critical'",
-                required: false,
-                description: 'Urgency level'
-            },
-            {
-                name: 'duration_ms',
-                type: 'number',
-                required: false,
-                description: 'Duration in milliseconds'
-            }
-        ],
-        server: 'system-tools',
-        method: 'POST',
-        path: '/tools/system/notification',
-        default: true,
-        pendingPhrase: (args) => `J'envoie une notification : ${args.title}...`
+        pendingPhrase: () => `Je règle le volume...`
     },
     {
         name: 'weather_get',
@@ -165,14 +137,20 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
                 type: "'metric'|'imperial'",
                 required: false,
                 description: 'Temperature units'
+            },
+            {
+                name: 'days',
+                type: 'number',
+                required: false,
+                description: 'Number of forecast days (1–7, default: 1)'
             }
         ],
         server: 'tools',
         method: 'GET',
         path: '/tools/weather',
-        queryParams: ['location', 'units'],
+        queryParams: ['location', 'units', 'days'],
         default: true,
-        pendingPhrase: (args) => `J'interroge la météo à ${args.location}...`
+        pendingPhrase: () => `J'interroge la météo...`
     },
 
     // ── Discoverable tools ─────────────────────────────────────────
@@ -251,6 +229,16 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         pendingPhrase: () => `J'ouvre le fichier...`
     },
     {
+        name: 'system_open_folder',
+        description: 'Open a folder in the file manager',
+        args: [{ name: 'path', type: 'string', required: true, description: 'Folder path' }],
+        server: 'system-tools',
+        method: 'POST',
+        path: '/tools/system/open-folder',
+        default: false,
+        pendingPhrase: () => `J'ouvre le dossier...`
+    },
+    {
         name: 'system_launch_app',
         description: 'Launch an application by name',
         args: [
@@ -265,7 +253,7 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/system/launch-app',
         default: false,
-        pendingPhrase: (args) => `Je lance ${args.name}...`
+        pendingPhrase: () => `Je lance l'application...`
     },
     {
         name: 'vscode_open',
@@ -340,13 +328,81 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
                 type: 'string',
                 required: false,
                 description: 'Event description'
+            },
+            {
+                name: 'time_zone',
+                type: 'string',
+                required: false,
+                description:
+                    'IANA timezone (e.g. Europe/Paris). Defaults to Europe/Paris if omitted.'
             }
         ],
         server: 'tools',
         method: 'POST',
         path: '/tools/calendar/events',
         default: false,
-        pendingPhrase: (args) => `Je crée l'événement "${args.summary}"...`
+        pendingPhrase: () => `Je crée l'événement...`
+    },
+    {
+        name: 'calendar_update',
+        description: 'Update an existing Google Calendar event',
+        args: [
+            { name: 'id', type: 'string', required: true, description: 'Event ID' },
+            { name: 'summary', type: 'string', required: false, description: 'New event title' },
+            {
+                name: 'start',
+                type: 'string',
+                required: false,
+                description: 'New start time ISO 8601'
+            },
+            { name: 'end', type: 'string', required: false, description: 'New end time ISO 8601' },
+            {
+                name: 'description',
+                type: 'string',
+                required: false,
+                description: 'New description'
+            },
+            { name: 'location', type: 'string', required: false, description: 'New location' },
+            {
+                name: 'time_zone',
+                type: 'string',
+                required: false,
+                description: 'IANA timezone (default: Europe/Paris)'
+            },
+            {
+                name: 'calendar_id',
+                type: 'string',
+                required: false,
+                description: 'Calendar ID (default: primary)'
+            }
+        ],
+        server: 'tools',
+        method: 'PUT',
+        path: '/tools/calendar/events/:id',
+        pathParams: ['id'],
+        default: false,
+        pendingPhrase: () => `Je modifie l'événement...`
+    },
+    {
+        name: 'calendar_delete',
+        description: 'Delete a Google Calendar event',
+        args: [
+            { name: 'id', type: 'string', required: true, description: 'Event ID' },
+            {
+                name: 'calendar_id',
+                type: 'string',
+                required: false,
+                description: 'Calendar ID (default: primary)'
+            }
+        ],
+        server: 'tools',
+        method: 'DELETE',
+        path: '/tools/calendar/events/:id',
+        pathParams: ['id'],
+        queryParams: ['calendar_id'],
+        default: false,
+        requiresConfirmation: true,
+        pendingPhrase: () => `Je supprime l'événement...`
     },
     {
         name: 'tasks_list',
@@ -355,14 +411,32 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
             {
                 name: 'list_id',
                 type: 'string',
+                required: true,
+                description: 'Task list ID (use tasks_lists to get available IDs)'
+            },
+            {
+                name: 'status',
+                type: "'needsAction'|'completed'",
                 required: false,
-                description: 'Task list ID (default: primary)'
+                description: 'Filter by status'
+            },
+            {
+                name: 'due_min',
+                type: 'string',
+                required: false,
+                description: 'Min due date ISO 8601'
+            },
+            {
+                name: 'due_max',
+                type: 'string',
+                required: false,
+                description: 'Max due date ISO 8601'
             }
         ],
         server: 'tools',
         method: 'GET',
         path: '/tools/tasks',
-        queryParams: ['list_id'],
+        queryParams: ['list_id', 'status', 'due_min', 'due_max'],
         default: false,
         pendingPhrase: () => `Je consulte tes tâches...`
     },
@@ -383,7 +457,56 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         method: 'POST',
         path: '/tools/tasks',
         default: false,
-        pendingPhrase: (args) => `J'ajoute la tâche "${args.title}"...`
+        pendingPhrase: () => `J'ajoute la tâche...`
+    },
+    {
+        name: 'tasks_update',
+        description: 'Update a Google Task (e.g. mark complete, change due date)',
+        args: [
+            { name: 'id', type: 'string', required: true, description: 'Task ID' },
+            { name: 'title', type: 'string', required: false, description: 'New title' },
+            { name: 'notes', type: 'string', required: false, description: 'New notes' },
+            { name: 'due', type: 'string', required: false, description: 'New due date ISO 8601' },
+            {
+                name: 'status',
+                type: "'needsAction'|'completed'",
+                required: false,
+                description: 'Task status'
+            },
+            {
+                name: 'list_id',
+                type: 'string',
+                required: false,
+                description: 'Task list ID (default: primary)'
+            }
+        ],
+        server: 'tools',
+        method: 'PUT',
+        path: '/tools/tasks/:id',
+        pathParams: ['id'],
+        default: false,
+        pendingPhrase: () => `Je mets à jour la tâche...`
+    },
+    {
+        name: 'tasks_delete',
+        description: 'Delete a Google Task',
+        args: [
+            { name: 'id', type: 'string', required: true, description: 'Task ID' },
+            {
+                name: 'list_id',
+                type: 'string',
+                required: false,
+                description: 'Task list ID (default: primary)'
+            }
+        ],
+        server: 'tools',
+        method: 'DELETE',
+        path: '/tools/tasks/:id',
+        pathParams: ['id'],
+        queryParams: ['list_id'],
+        default: false,
+        requiresConfirmation: true,
+        pendingPhrase: () => `Je supprime la tâche...`
     },
     {
         name: 'routines_status',
@@ -394,6 +517,65 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         path: '/tools/routines/status',
         default: false,
         pendingPhrase: () => `Je vérifie tes routines...`
+    },
+    {
+        name: 'routines_get',
+        description: 'Get the list of daily routine items',
+        args: [
+            {
+                name: 'date',
+                type: 'string',
+                required: false,
+                description: 'Date YYYY-MM-DD (default: today)'
+            }
+        ],
+        server: 'tools',
+        method: 'GET',
+        path: '/tools/routines',
+        queryParams: ['date'],
+        default: false,
+        pendingPhrase: () => `Je consulte tes routines...`
+    },
+    {
+        name: 'routines_check',
+        description: 'Mark a routine item as done for today',
+        args: [
+            {
+                name: 'item_id',
+                type: 'number',
+                required: true,
+                description: 'Routine item ID (from routines_get)'
+            },
+            {
+                name: 'date',
+                type: 'string',
+                required: false,
+                description: 'Date YYYY-MM-DD (default: today)'
+            }
+        ],
+        server: 'tools',
+        method: 'POST',
+        path: '/tools/routines/check',
+        default: false,
+        pendingPhrase: () => `Je marque la routine comme faite...`
+    },
+    {
+        name: 'routines_uncheck',
+        description: 'Unmark a routine item as done',
+        args: [
+            { name: 'item_id', type: 'number', required: true, description: 'Routine item ID' },
+            {
+                name: 'date',
+                type: 'string',
+                required: false,
+                description: 'Date YYYY-MM-DD (default: today)'
+            }
+        ],
+        server: 'tools',
+        method: 'POST',
+        path: '/tools/routines/uncheck',
+        default: false,
+        pendingPhrase: () => `Je décoche la routine...`
     },
     {
         name: 'memory_search',
@@ -417,7 +599,32 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
         path: '/tools/memory/search',
         queryParams: ['q', 'limit'],
         default: false,
-        pendingPhrase: (args) => `Je cherche dans ma mémoire : ${args.q}...`
+        pendingPhrase: () => `Je cherche dans ma mémoire...`
+    },
+    {
+        name: 'memory_context',
+        description:
+            'Retrieve contextual memory snippets relevant to a topic (facts + past episodes combined)',
+        args: [
+            {
+                name: 'q',
+                type: 'string',
+                required: true,
+                description: 'Topic or question to get context for'
+            },
+            {
+                name: 'limit',
+                type: 'number',
+                required: false,
+                description: 'Max results (default: 5)'
+            }
+        ],
+        server: 'tools',
+        method: 'GET',
+        path: '/tools/memory/context',
+        queryParams: ['q', 'limit'],
+        default: false,
+        pendingPhrase: () => `Je consulte ma mémoire...`
     },
     {
         name: 'add_reminder',
@@ -442,11 +649,80 @@ export const TOOLS_CATALOGUE: ToolDef[] = [
                 description: 'ISO 8601 datetime for the reminder (use this OR delay_minutes)'
             }
         ],
-        server: 'tools',
+        // Handled client-side in toolsClient.ts — no HTTP route
+        server: 'client',
         method: 'POST',
         path: '/tools/reminders',
         default: true,
-        pendingPhrase: (args) => `Je programme un rappel dans ${args.delay_minutes ?? '?'} minutes...`
+        pendingPhrase: () => `Je programme un rappel...`
+    },
+    {
+        name: 'list_reminders',
+        description:
+            'List all pending (not yet delivered) reminders with their IDs and scheduled times',
+        args: [],
+        // Handled client-side in toolsClient.ts — no HTTP route
+        server: 'client',
+        method: 'GET',
+        path: '/tools/reminders',
+        default: true,
+        pendingPhrase: () => `Je consulte les rappels en attente...`
+    },
+    {
+        name: 'delete_reminder',
+        description:
+            'Delete a pending reminder by its position number (1-based, as shown by list_reminders)',
+        args: [
+            {
+                name: 'number',
+                type: 'number',
+                required: true,
+                description: 'Position number of the reminder to delete (1 = first in list)'
+            }
+        ],
+        // Handled client-side in toolsClient.ts — no HTTP route
+        server: 'client',
+        method: 'DELETE',
+        path: '/tools/reminders/0',
+        default: true,
+        pendingPhrase: () => `Je supprime le rappel...`
+    },
+    {
+        name: 'update_reminder',
+        description:
+            'Update a pending reminder text or scheduled time by its position number (1-based, as shown by list_reminders)',
+        args: [
+            {
+                name: 'number',
+                type: 'number',
+                required: true,
+                description: 'Position number of the reminder to update (1 = first in list)'
+            },
+            {
+                name: 'text',
+                type: 'string',
+                required: false,
+                description: 'New reminder text (omit to keep existing)'
+            },
+            {
+                name: 'due_at',
+                type: 'string',
+                required: false,
+                description: 'New scheduled time ISO 8601 (use this OR delay_minutes)'
+            },
+            {
+                name: 'delay_minutes',
+                type: 'number',
+                required: false,
+                description: 'New delay from now in minutes (use this OR due_at)'
+            }
+        ],
+        // Handled client-side in toolsClient.ts — no HTTP route
+        server: 'client',
+        method: 'PUT',
+        path: '/tools/reminders/0',
+        default: true,
+        pendingPhrase: () => `Je modifie le rappel...`
     },
     {
         name: 'memory_save_fact',

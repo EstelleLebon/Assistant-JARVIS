@@ -6,6 +6,7 @@ import { getToolServerStatuses } from './tools/toolsServerManager'
 import { addReminder, getDueReminders, markDelivered } from './heartbeat/reminderStore'
 import { canNotify, recordNotification } from './heartbeat/attentionEngine'
 import { sendNotification } from './notifications'
+import { llmQueue } from './llm/llmQueue'
 
 // ─── Task types ───────────────────────────────────────────────────────────────
 
@@ -28,22 +29,41 @@ async function handleExtractInsights(messages: ConversationMessage[], emit: Emit
         .map((m) => `${m.role === 'user' ? 'User' : 'Jarvis'}: ${m.content}`)
         .join('\n')
 
-    const entries = await extractMemoriesFromConversation(transcript)
-    if (entries.length === 0) {
-        logger.info('[taskQueue] No memories worth extracting from this conversation')
-        return
-    }
-
-    addMemories(entries)
-    logger.info(`[taskQueue] Extracted and saved ${entries.length} memories`)
-    emit('conversation:insights', { count: entries.length, entries })
+    await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+            logger.warn('[taskQueue] Memory extraction timeout (60s) — skipping')
+            resolve()
+        }, 60_000)
+        llmQueue.enqueue({
+            priority: 'background',
+            run: async () => {
+                try {
+                    const entries = await extractMemoriesFromConversation(transcript)
+                    if (entries.length === 0) {
+                        logger.info(
+                            '[taskQueue] No memories worth extracting from this conversation'
+                        )
+                    } else {
+                        addMemories(entries)
+                        logger.info(`[taskQueue] Extracted and saved ${entries.length} memories`)
+                        emit('conversation:insights', { count: entries.length, entries })
+                    }
+                } finally {
+                    clearTimeout(timeout)
+                    resolve()
+                }
+            }
+        })
+    })
 }
 
 async function handleHeartbeat(emit: EmitFn): Promise<void> {
     const status: Record<string, boolean> = {}
 
     try {
-        const res = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5_000) })
+        const res = await fetch('http://localhost:11434/api/tags', {
+            signal: AbortSignal.timeout(5_000)
+        })
         status.ollama = res.ok
     } catch {
         status.ollama = false
@@ -52,7 +72,9 @@ async function handleHeartbeat(emit: EmitFn): Promise<void> {
     const toolStatuses = await getToolServerStatuses()
     Object.assign(status, toolStatuses)
 
-    const down = Object.entries(status).filter(([, ok]) => !ok).map(([k]) => k)
+    const down = Object.entries(status)
+        .filter(([, ok]) => !ok)
+        .map(([k]) => k)
     if (down.length > 0) {
         logger.warn('[taskQueue] Heartbeat — services down: ' + down.join(', '))
     } else {
@@ -71,7 +93,7 @@ async function handleCheckReminders(emit: EmitFn, deliver: DeliverFn): Promise<v
         recordNotification()
         deliver(reminder.text)
         sendNotification('Rappel', reminder.text)
-        emit('assistant:reminder', { text: reminder.text })
+        emit('assistant:reminder', { text: reminder.text, timestamp: Date.now() })
     }
 }
 
@@ -138,7 +160,7 @@ export function stopTaskQueue(): void {
 // Waits for the current queue to drain, then stops. Use on app shutdown.
 // stopped is set only after drain so in-flight and already-queued tasks can complete.
 export function drainAndStop(): Promise<void> {
-    draining = true  // block new pushes, but let queued tasks finish
+    draining = true // block new pushes, but let queued tasks finish
     if (!running && queue.length === 0) {
         stopped = true
         return Promise.resolve()

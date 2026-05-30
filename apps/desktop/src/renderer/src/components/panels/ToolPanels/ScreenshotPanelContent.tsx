@@ -12,15 +12,39 @@ export default function ScreenshotPanelContent({ data }: { data: unknown }) {
     }
 
     return (
-        <div style={{ padding: '10px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '10px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             {d.base64 ? (
                 <img
                     src={d.base64}
                     alt="Screenshot"
-                    style={{ width: '100%', borderRadius: '8px', display: 'block', marginBottom: '8px' }}
+                    style={{
+                        width: '100%',
+                        borderRadius: '8px',
+                        display: 'block',
+                        marginBottom: '8px'
+                    }}
                 />
             ) : (
-                <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '8px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
+                <div
+                    style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        borderRadius: '8px',
+                        height: '80px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '8px',
+                        fontSize: '12px',
+                        color: '#666'
+                    }}
+                >
                     Image non disponible
                 </div>
             )}

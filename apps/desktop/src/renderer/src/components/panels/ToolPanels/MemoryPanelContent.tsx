@@ -18,7 +18,11 @@ const TYPE_LABELS: Record<string, string> = {
 
 function formatDate(iso: string): string {
     try {
-        return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })
+        return new Date(iso).toLocaleDateString('fr-FR', {
+            day: 'numeric',
+            month: 'short',
+            year: '2-digit'
+        })
     } catch {
         return iso
     }
@@ -35,7 +39,14 @@ export default function MemoryPanelContent({ data }: { data: unknown }) {
     }, {})
 
     return (
-        <div style={{ padding: '12px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '12px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             <div style={{ fontSize: '11px', color: '#888', marginBottom: '10px' }}>
                 Mémoire : <strong style={{ color: '#aaa' }}>{d.query}</strong>
             </div>
@@ -65,9 +76,17 @@ export default function MemoryPanelContent({ data }: { data: unknown }) {
                                         padding: '8px 10px'
                                     }}
                                 >
-                                    <div style={{ fontSize: '12px', lineHeight: 1.4 }}>{item.content}</div>
+                                    <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
+                                        {item.content}
+                                    </div>
                                     {item.created_at && (
-                                        <div style={{ fontSize: '10px', color: '#666', marginTop: '3px' }}>
+                                        <div
+                                            style={{
+                                                fontSize: '10px',
+                                                color: '#666',
+                                                marginTop: '3px'
+                                            }}
+                                        >
                                             {formatDate(item.created_at)}
                                         </div>
                                     )}

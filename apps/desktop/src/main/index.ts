@@ -5,7 +5,14 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 import logger from './logger'
-import { initTTS, stopSpeaking, onPiperStatus, ttsEvents, isTTSPlaying, queueSpeak } from './speech/TTS/ttsPlayer'
+import {
+    initTTS,
+    stopSpeaking,
+    onPiperStatus,
+    ttsEvents,
+    isTTSPlaying,
+    queueSpeak
+} from './speech/TTS/ttsPlayer'
 import Conversation from './speech/conversation/Conversation'
 import SpeechSession from './speech/conversation/SpeechSession'
 import { flushServiceStatuses, updateServiceStatus } from './serviceStatus'
@@ -13,10 +20,20 @@ import { registerIpcHandlers } from './ipc/handlers'
 import { startTokenizerServer, stopTokenizerServer } from './llm/tokenizerServerInstance'
 import { startChromeSidecar, onSidecarStatus } from './sttSidecar'
 import type { ChromeSidecar } from './sttSidecar'
-import { startWakeWord, pauseWakeWord, resumeWakeWord, stopWakeWord } from './speech/STT/wakeword/wakewordProcess'
+import {
+    startWakeWord,
+    pauseWakeWord,
+    resumeWakeWord,
+    stopWakeWord
+} from './speech/STT/wakeword/wakewordProcess'
 import { ensureToolServers, stopToolServers } from './tools/toolsServerManager'
 import { startTaskQueue, drainAndStop, pushTask } from './taskQueue'
-import { startHeartbeatScheduler, stopHeartbeatScheduler, pauseHeartbeat, resumeHeartbeat } from './heartbeat/scheduler'
+import {
+    startHeartbeatScheduler,
+    stopHeartbeatScheduler,
+    pauseHeartbeat,
+    resumeHeartbeat
+} from './heartbeat/scheduler'
 import { checkTemporalRecovery, recordHeartbeatTimestamp } from './heartbeat/temporalRecovery'
 import { configureAttentionEngine } from './heartbeat/attentionEngine'
 import { initNotifications, sendNotification } from './notifications'
@@ -133,21 +150,37 @@ app.whenReady().then(async () => {
 
     onPiperStatus((status) => updateServiceStatus('piper', status))
     ttsEvents.on('speaking-start', () => {
+        logger.info('[MAIN:DEBUG] ttsEvents speaking-start → sending IPC assistant:speaking_start')
         pauseHeartbeat()
-        try { pauseWakeWord() } catch (e) { logger.error('[MAIN] pauseWakeWord failed: ' + String(e)) }
+        try {
+            pauseWakeWord()
+        } catch (e) {
+            logger.error('[MAIN] pauseWakeWord failed: ' + String(e))
+        }
         sendToRenderer('assistant:speaking_start')
     })
     ttsEvents.on('speaking-end', () => {
+        logger.info('[MAIN:DEBUG] ttsEvents speaking-end → sending IPC assistant:speaking_end')
         resumeHeartbeat()
-        try { resumeWakeWord() } catch (e) { logger.error('[MAIN] resumeWakeWord failed: ' + String(e)) }
+        try {
+            resumeWakeWord()
+        } catch (e) {
+            logger.error('[MAIN] resumeWakeWord failed: ' + String(e))
+        }
         sendToRenderer('assistant:speaking_end')
+    })
+    ttsEvents.on('audio-level', (level: number) => {
+        sendToRenderer('assistant:audio_level', { level })
     })
 
     sidecar = startChromeSidecar(handleSttEvent)
     onSidecarStatus((status) => updateServiceStatus('chrome-stt', status))
 
     startWakeWord(
-        () => { handleWake(); recordInteraction() },
+        () => {
+            handleWake()
+            recordInteraction()
+        },
         (status) => updateServiceStatus('wakeword', status)
     )
 
@@ -176,7 +209,8 @@ app.on('before-quit', (event) => {
         pushTask({ type: 'extract-insights', payload: { messages: snapshot } })
     }
 
-    drainAndStop().then(() => {
+    const drainTimeout = new Promise<void>((resolve) => setTimeout(resolve, 60_000))
+    Promise.race([drainAndStop(), drainTimeout]).then(() => {
         stopToolServers()
         stopTokenizerServer()
         logger.info('[MAIN] Cleanup done')

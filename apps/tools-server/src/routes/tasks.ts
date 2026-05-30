@@ -15,7 +15,7 @@ function mapTask(t: any) {
         notes: t.notes ?? '',
         due: t.due ?? null,
         status: t.status,
-        completed: t.completed ?? null,
+        completed: t.completed ?? null
     }
 }
 
@@ -44,7 +44,7 @@ export async function registerTasks(fastify: FastifyInstance) {
                 showHidden: true,
                 ...(status && { showCompleted: status === 'completed' }),
                 ...(due_min && { dueMin: due_min }),
-                ...(due_max && { dueMax: due_max }),
+                ...(due_max && { dueMax: due_max })
             })
             const items = (res.data.items ?? [])
                 .filter((t) => !status || t.status === status)
@@ -56,9 +56,10 @@ export async function registerTasks(fastify: FastifyInstance) {
                 completed: t.status === 'completed'
             }))
             const pending = panelTasks.filter((t) => !t.completed)
-            const result = items.length === 0
-                ? 'Aucune tâche trouvée.'
-                : `${pending.length} tâche${pending.length !== 1 ? 's' : ''} en attente sur ${items.length} au total.`
+            const result =
+                items.length === 0
+                    ? 'Aucune tâche trouvée.'
+                    : `${pending.length} tâche${pending.length !== 1 ? 's' : ''} en attente sur ${items.length} au total.`
             return reply.send({
                 result,
                 panel: { type: 'tasks', data: { tasks: panelTasks } }
@@ -71,12 +72,13 @@ export async function registerTasks(fastify: FastifyInstance) {
     // Create task
     fastify.post('/tools/tasks', async (req, reply) => {
         const { list_id, title, notes, due } = req.body as any
-        if (!list_id || !title) return reply.status(400).send(err('INVALID_PARAMS', 'list_id and title are required'))
+        if (!list_id || !title)
+            return reply.status(400).send(err('INVALID_PARAMS', 'list_id and title are required'))
         try {
             const tasks = tasksClient()
             const res = await tasks.tasks.insert({
                 tasklist: list_id,
-                requestBody: { title, notes, due },
+                requestBody: { title, notes, due }
             })
             return reply.status(201).send(ok(mapTask(res.data)))
         } catch (e: any) {
@@ -101,10 +103,15 @@ export async function registerTasks(fastify: FastifyInstance) {
                 if (status === 'completed') patch.completed = new Date().toISOString()
                 else patch.completed = null
             }
-            const res = await tasks.tasks.update({ tasklist: list_id, task: id, requestBody: patch })
+            const res = await tasks.tasks.update({
+                tasklist: list_id,
+                task: id,
+                requestBody: patch
+            })
             return reply.send(ok(mapTask(res.data)))
         } catch (e: any) {
-            if (e.code === 404) return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Task ${id} not found`))
+            if (e.code === 404)
+                return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Task ${id} not found`))
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }
     })
@@ -119,7 +126,8 @@ export async function registerTasks(fastify: FastifyInstance) {
             await tasks.tasks.delete({ tasklist: list_id, task: id })
             return reply.send(ok({ deleted: true }))
         } catch (e: any) {
-            if (e.code === 404) return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Task ${id} not found`))
+            if (e.code === 404)
+                return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Task ${id} not found`))
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }
     })

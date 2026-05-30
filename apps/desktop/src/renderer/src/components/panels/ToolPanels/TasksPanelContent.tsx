@@ -23,7 +23,14 @@ export default function TasksPanelContent({ data }: { data: unknown }) {
     const done = d.tasks.filter((t) => t.completed)
 
     return (
-        <div style={{ padding: '12px', paddingTop: '44px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
+        <div
+            style={{
+                padding: '12px',
+                paddingTop: '44px',
+                color: '#e0e0e0',
+                fontFamily: 'sans-serif'
+            }}
+        >
             {d.tasks.length === 0 ? (
                 <div style={{ color: '#666', fontSize: '13px' }}>Aucune tâche.</div>
             ) : (
@@ -31,7 +38,9 @@ export default function TasksPanelContent({ data }: { data: unknown }) {
                     <TaskList tasks={pending} />
                     {done.length > 0 && (
                         <>
-                            <div style={{ fontSize: '11px', color: '#666', margin: '10px 0 6px' }}>Terminées</div>
+                            <div style={{ fontSize: '11px', color: '#666', margin: '10px 0 6px' }}>
+                                Terminées
+                            </div>
                             <TaskList tasks={done} dimmed />
                         </>
                     )}

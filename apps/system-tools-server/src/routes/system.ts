@@ -1,15 +1,23 @@
 import type { FastifyInstance } from 'fastify'
 import { execFile, spawn } from 'child_process'
-import { join } from 'path'
+import { join, resolve as resolvePath, basename } from 'path'
+import os from 'os'
 import { readFileSync } from 'fs'
 import { ok, err } from '../types/index.js'
 
 function run(cmd: string, args: string[]): Promise<{ code: number; stderr: string }> {
     return new Promise((resolve) => {
-        execFile(cmd, args, (error, _stdout, stderr) => {
+        execFile(cmd, args, { timeout: 10_000 }, (error, _stdout, stderr) => {
             resolve({ code: error ? 1 : 0, stderr: stderr.trim() })
         })
     })
+}
+
+const HOME = process.env.HOME ?? os.homedir()
+
+function isSafePath(p: string): boolean {
+    const resolved = resolvePath(p)
+    return resolved.startsWith(HOME) || resolved.startsWith('/tmp')
 }
 
 export async function systemRoutes(fastify: FastifyInstance) {
@@ -41,30 +49,35 @@ export async function systemRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body?: { output_dir?: string; filename?: string } }>(
         '/tools/system/screenshot',
         async (req) => {
-            const outputDir = '/home/mika/Pictures/Screenshots'
-            const filename =
+            const outputDir = join(HOME, 'Pictures', 'Screenshots')
+            const rawFilename =
                 req.body?.filename ?? new Date().toISOString().replace(/[:.]/g, '-') + '.png'
-            const path = join(outputDir, filename)
+            const safeFilename =
+                basename(rawFilename).replace(/[^a-zA-Z0-9._-]/g, '_') || 'screenshot.png'
+            const path = join(outputDir, safeFilename)
             // Try screenshot tools in order of preference
             const tools: [string, string[]][] = [
                 ['spectacle', ['-b', '-n', '-o', path]], // KDE Wayland/X11
-                ['gnome-screenshot', ['-f', path]],      // GNOME
-                ['grim', [path]],                        // wlroots Wayland
-                ['maim', [path]],                        // X11
-                ['scrot', [path]]                        // X11 fallback
+                ['gnome-screenshot', ['-f', path]], // GNOME
+                ['grim', [path]], // wlroots Wayland
+                ['maim', [path]], // X11
+                ['scrot', [path]] // X11 fallback
             ]
             let result = { code: 1, stderr: 'no screenshot tool found' }
             for (const [cmd, args] of tools) {
                 result = await run(cmd, args)
                 if (result.code === 0) break
             }
-            if (result.code !== 0) return err('COMMAND_FAILED', result.stderr || 'screenshot failed')
+            if (result.code !== 0)
+                return err('COMMAND_FAILED', result.stderr || 'screenshot failed')
             const timestamp = new Date().toISOString()
             let base64: string | undefined
             try {
                 const buf = readFileSync(path)
                 base64 = `data:image/png;base64,${buf.toString('base64')}`
-            } catch { /* image sera indisponible dans le panel */ }
+            } catch {
+                /* image sera indisponible dans le panel */
+            }
             return {
                 result: `Capture d'écran enregistrée : ${path}`,
                 panel: { type: 'screenshot', data: { path, timestamp, base64 } }
@@ -75,6 +88,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: { path: string } }>('/tools/system/open-file', async (req) => {
         const { path } = req.body ?? {}
         if (!path) return err('INVALID_PARAMS', 'path is required')
+        if (!isSafePath(path)) return err('INVALID_PARAMS', 'path contains invalid segments')
         const result = await run('xdg-open', [path])
         if (result.code !== 0) return err('COMMAND_FAILED', result.stderr || 'xdg-open failed')
         return ok({ opened: true, path })
@@ -83,6 +97,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: { path: string } }>('/tools/system/open-folder', async (req) => {
         const { path } = req.body ?? {}
         if (!path) return err('INVALID_PARAMS', 'path is required')
+        if (!isSafePath(path)) return err('INVALID_PARAMS', 'path contains invalid segments')
         const result = await run('xdg-open', [path])
         if (result.code !== 0) return err('COMMAND_FAILED', result.stderr || 'xdg-open failed')
         return ok({ opened: true, path })

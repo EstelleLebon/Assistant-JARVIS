@@ -243,7 +243,6 @@ export default function createOrb(
     // ── Colour helpers ─────────────────────────────────────────────────────────
     const COL_BASE = new THREE.Color(0x4ca8e8)
     const COL_THINK = new THREE.Color(0x6ec4ff)
-    const COL_SPEAK = new THREE.Color(0x5ab8f0)
     const COL_BRIGHT = new THREE.Color(0xb8eeff)
     const COL_FLASH = new THREE.Color(0xffffff)
     const COL_ERROR = new THREE.Color(0xff2200)
@@ -686,10 +685,11 @@ export default function createOrb(
             mid = mS / (16 * 255)
             treble = tS / (24 * 255)
         } else if (state === 'speaking') {
-            // Use external volume if no analyser (Jarvis on PC)
-            bass = externalVolume * 0.6
-            mid = externalVolume * 0.3
-            treble = externalVolume * 0.1
+            // Use external volume if no analyser (Jarvis on PC) — attenuated
+            const vol = externalVolume * 0.25
+            bass = vol * 0.6
+            mid = vol * 0.3
+            treble = vol * 0.1
         }
 
         // ── Shockwave — bass spike detection ────────────────────────────────────
@@ -908,7 +908,7 @@ export default function createOrb(
             let anchorPos = new THREE.Vector3(0, 0, 0)
             if (typeof reg.options.anchorIndex === 'number') {
                 const posAttr = ParticleGeometry.getAttribute('position')
-                const idx = reg.options.anchorIndex % (posAttr.count)
+                const idx = reg.options.anchorIndex % posAttr.count
                 anchorPos = new THREE.Vector3(
                     posAttr.getX(idx),
                     posAttr.getY(idx),
@@ -997,14 +997,14 @@ export default function createOrb(
             ParticleMaterial.size = currentSize + bass * 0.2 + shockwave * 0.3
 
             const pulseIntensity = bass * 0.7 + mid * 0.2 + shockwave * 0.5
-            const wave = 0.5 + 0.5 * Math.sin(t * 12.0 + bass * 8.0)
-            _tmpColor.lerpColors(COL_SPEAK, COL_BRIGHT, Math.min(1, pulseIntensity * wave))
 
+            _tmpColor.copy(COL_BASE)
+            _tmpColor.lerp(COL_BRIGHT, Math.min(1, pulseIntensity * 0.6))
             if (shockwave > 0.18) {
                 _tmpColor.lerp(COL_FLASH, (shockwave - 0.18) * 3.0)
             }
             ParticleMaterial.color.lerp(_tmpColor, 0.14)
-            _lineColorMemory.lerp(_tmpColor, 0.04) // transition plus douce
+            _lineColorMemory.lerp(_tmpColor, 0.04)
             LineMaterial.color.copy(_lineColorMemory)
             ElectronMaterial.color.set(0xffffff)
         } else {
@@ -1083,6 +1083,7 @@ export default function createOrb(
 
     return {
         setState(s: OrbState) {
+            console.log('[Orb:DEBUG] setState called:', s, '(was:', state, ')')
             state = s
             if (s === 'startup') {
                 startupTimer = 0

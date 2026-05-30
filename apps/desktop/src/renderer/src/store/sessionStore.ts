@@ -9,7 +9,7 @@ export interface ToolMessage {
 }
 
 export interface TextMessage {
-    id: number
+    id: string
     role: 'user' | 'assistant'
     text: string
 }
@@ -22,6 +22,9 @@ interface SessionStore {
     partialTranscript: string
     streamingMessage: string | null
     errorMessage: string | null
+    llmQueued: boolean
+    llmQueuedSince: number | null
+    setLlmQueued: (v: boolean) => void
     appendSessionFinal: (text: string) => void
     setPartial: (text: string) => void
     commitSession: () => void
@@ -30,6 +33,7 @@ interface SessionStore {
     finalizeAssistantStream: (text: string) => void
     addToolCall: (id: number, toolName: string, toolArgs: Record<string, unknown>) => void
     updateToolResult: (id: number, toolResult: string) => void
+    addAssistantMessage: (text: string) => void
     setError: (message: string) => void
     clearError: () => void
     clearMessages: () => void
@@ -41,6 +45,9 @@ const useSessionStore = create<SessionStore>((set) => ({
     partialTranscript: '',
     streamingMessage: null,
     errorMessage: null,
+    llmQueued: false,
+    llmQueuedSince: null,
+    setLlmQueued: (v) => set({ llmQueued: v, llmQueuedSince: v ? Date.now() : null }),
 
     appendSessionFinal: (text) =>
         set((state) => ({
@@ -55,7 +62,7 @@ const useSessionStore = create<SessionStore>((set) => ({
             const text = state.sessionText.trim()
             if (!text) return { sessionText: '', partialTranscript: '' }
             return {
-                messages: [...state.messages, { id: Date.now(), role: 'user', text }],
+                messages: [...state.messages, { id: crypto.randomUUID(), role: 'user', text }],
                 sessionText: '',
                 partialTranscript: ''
             }
@@ -70,7 +77,7 @@ const useSessionStore = create<SessionStore>((set) => ({
 
     finalizeAssistantStream: (text) =>
         set((state) => ({
-            messages: [...state.messages, { id: Date.now(), role: 'assistant', text }],
+            messages: [...state.messages, { id: crypto.randomUUID(), role: 'assistant', text }],
             streamingMessage: null
         })),
 
@@ -86,12 +93,25 @@ const useSessionStore = create<SessionStore>((set) => ({
             )
         })),
 
+    addAssistantMessage: (text) =>
+        set((state) => ({
+            messages: [...state.messages, { id: crypto.randomUUID(), role: 'assistant', text }]
+        })),
+
     setError: (message) => set({ errorMessage: message }),
 
     clearError: () => set({ errorMessage: null }),
 
     clearMessages: () =>
-        set({ messages: [], sessionText: '', partialTranscript: '', streamingMessage: null, errorMessage: null })
+        set({
+            messages: [],
+            sessionText: '',
+            partialTranscript: '',
+            streamingMessage: null,
+            errorMessage: null,
+            llmQueued: false,
+            llmQueuedSince: null
+        })
 }))
 
 export default useSessionStore

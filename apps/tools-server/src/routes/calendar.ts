@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { google } from 'googleapis'
 import { createOAuth2Client } from '../oauth.js'
 import { ok, err } from '../types/api.js'
+import { dateOnlyToUtc } from '../tz.js'
 
 function calendarClient() {
     const auth = createOAuth2Client()
@@ -17,7 +18,7 @@ function mapEvent(e: any, calendarId: string) {
         start: e.start?.dateTime ?? e.start?.date,
         end: e.end?.dateTime ?? e.end?.date,
         allDay: !e.start?.dateTime,
-        calendarId,
+        calendarId
     }
 }
 
@@ -31,7 +32,7 @@ export async function registerCalendar(fastify: FastifyInstance) {
                 id: c.id,
                 summary: c.summary,
                 primary: c.primary ?? false,
-                backgroundColor: c.backgroundColor,
+                backgroundColor: c.backgroundColor
             }))
             return reply.send(ok({ calendars }))
         } catch (e: any) {
@@ -51,7 +52,15 @@ export async function registerCalendar(fastify: FastifyInstance) {
             date_start = date_start ?? todayStart.toISOString()
             date_end = date_end ?? todayEnd.toISOString()
         }
-        // Ensure RFC 3339 with timezone (Google API rejects bare local datetimes)
+        // Expand bare date strings (YYYY-MM-DD) to full-day bounds in Europe/Paris (DST-aware)
+        const isDateOnly = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
+        if (date_start && isDateOnly(date_start)) {
+            date_start = dateOnlyToUtc(date_start, 'Europe/Paris', 'start').toISOString()
+        }
+        if (date_end && isDateOnly(date_end)) {
+            date_end = dateOnlyToUtc(date_end, 'Europe/Paris', 'end').toISOString()
+        }
+        // Ensure RFC 3339 with timezone for any remaining bare local datetimes
         if (date_start && !date_start.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(date_start)) {
             date_start = new Date(date_start).toISOString()
         }
@@ -66,7 +75,7 @@ export async function registerCalendar(fastify: FastifyInstance) {
                 timeMax: date_end,
                 maxResults: parseInt(max_results),
                 singleEvents: true,
-                orderBy: 'startTime',
+                orderBy: 'startTime'
             })
             const events = (res.data.items ?? []).map((e) => mapEvent(e, calendar_id))
             const panelEvents = events.map((e) => ({
@@ -75,9 +84,10 @@ export async function registerCalendar(fastify: FastifyInstance) {
                 end: e.end,
                 location: e.location || undefined
             }))
-            const result = events.length === 0
-                ? 'Aucun événement sur cette période.'
-                : events.map((e) => `- ${e.summary} (${e.start})`).join('\n')
+            const result =
+                events.length === 0
+                    ? 'Aucun événement sur cette période.'
+                    : events.map((e) => `- ${e.summary} (${e.start})`).join('\n')
             return reply.send({
                 result,
                 panel: { type: 'calendar', data: { events: panelEvents } }
@@ -90,17 +100,33 @@ export async function registerCalendar(fastify: FastifyInstance) {
     // Create event
     fastify.post('/tools/calendar/events', async (req, reply) => {
         const body = req.body as any
-        const { summary, start, end, description, location, calendar_id = 'primary', all_day = false } = body
+        const {
+            summary,
+            start,
+            end,
+            description,
+            location,
+            calendar_id = 'primary',
+            all_day = false,
+            time_zone
+        } = body
         if (!summary || !start || !end) {
-            return reply.status(400).send(err('INVALID_PARAMS', 'summary, start, and end are required'))
+            return reply
+                .status(400)
+                .send(err('INVALID_PARAMS', 'summary, start, and end are required'))
         }
         try {
             const cal = calendarClient()
-            const startObj = all_day ? { date: start.substring(0, 10) } : { dateTime: start }
-            const endObj = all_day ? { date: end.substring(0, 10) } : { dateTime: end }
+            const tz = time_zone ?? 'Europe/Paris'
+            const startObj = all_day
+                ? { date: start.substring(0, 10) }
+                : { dateTime: start, timeZone: tz }
+            const endObj = all_day
+                ? { date: end.substring(0, 10) }
+                : { dateTime: end, timeZone: tz }
             const res = await cal.events.insert({
                 calendarId: calendar_id,
-                requestBody: { summary, description, location, start: startObj, end: endObj },
+                requestBody: { summary, description, location, start: startObj, end: endObj }
             })
             return reply.status(201).send(ok(mapEvent(res.data, calendar_id)))
         } catch (e: any) {
@@ -112,24 +138,41 @@ export async function registerCalendar(fastify: FastifyInstance) {
     fastify.put('/tools/calendar/events/:id', async (req, reply) => {
         const { id } = req.params as any
         const body = req.body as any
-        const { calendar_id = 'primary', summary, start, end, description, location, all_day } = body
+        const {
+            calendar_id = 'primary',
+            summary,
+            start,
+            end,
+            description,
+            location,
+            all_day,
+            time_zone
+        } = body
         try {
             const cal = calendarClient()
+            const tz = time_zone ?? 'Europe/Paris'
             const existing = await cal.events.get({ calendarId: calendar_id, eventId: id })
             const patch: any = {}
             if (summary !== undefined) patch.summary = summary
             if (description !== undefined) patch.description = description
             if (location !== undefined) patch.location = location
-            if (start !== undefined) patch.start = all_day ? { date: start.substring(0, 10) } : { dateTime: start }
-            if (end !== undefined) patch.end = all_day ? { date: end.substring(0, 10) } : { dateTime: end }
+            if (start !== undefined)
+                patch.start = all_day
+                    ? { date: start.substring(0, 10) }
+                    : { dateTime: start, timeZone: tz }
+            if (end !== undefined)
+                patch.end = all_day
+                    ? { date: end.substring(0, 10) }
+                    : { dateTime: end, timeZone: tz }
             const res = await cal.events.patch({
                 calendarId: calendar_id,
                 eventId: id,
-                requestBody: { ...existing.data, ...patch },
+                requestBody: { ...existing.data, ...patch }
             })
             return reply.send(ok(mapEvent(res.data, calendar_id)))
         } catch (e: any) {
-            if (e.code === 404) return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Event ${id} not found`))
+            if (e.code === 404)
+                return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Event ${id} not found`))
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }
     })
@@ -143,7 +186,8 @@ export async function registerCalendar(fastify: FastifyInstance) {
             await cal.events.delete({ calendarId: calendar_id, eventId: id })
             return reply.send(ok({ deleted: true }))
         } catch (e: any) {
-            if (e.code === 404) return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Event ${id} not found`))
+            if (e.code === 404)
+                return reply.status(404).send(err('RESOURCE_NOT_FOUND', `Event ${id} not found`))
             return reply.status(502).send(err('GOOGLE_API_ERROR', e.message))
         }
     })
